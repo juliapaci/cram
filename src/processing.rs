@@ -13,11 +13,11 @@ struct Key {
 
     // extras
     string: Rgb<u8>,        // for string literals
-    background: Rgb<u8>,    // background colour of the image
 
     // not a token
-    ignore: Rgb<u8>,
-    grid: Rgb<u8>,
+    ignore: Rgb<u8>,        // a colour to ignore
+    background: Rgb<u8>,    // background colour of the image
+    grid: Rgb<u8>,          // grid colour for the key file
 }
 
 impl Key {
@@ -54,14 +54,12 @@ impl Key {
 
     fn image_to_tiles(&mut self, image: &image::DynamicImage) -> [[[Rgb<u8>; 64]; 64]; 16]{
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().map(|&p| p).collect();
-        // TODO: dont put this here & make better way of finding key grid colour
-        self.grid = pixels[0];
 
         let mut tiles: [[[Rgb<u8>; 64]; 64]; 16] = [[[Rgb([0, 0, 0]); 64]; 64]; 16];
         for tile in 0..16 {
             for y in 0..64 {
                 for x in 0..64 {
-                    // TODO: fix slight errors where each row gets increasingly offset by 1 pixel. (luckily doesnt effet key parsing)
+                    // TODO: fix slight errors where each row gets increasingly offset some pixels. (luckily doesnt effet key parsing)
                     // row of tiles offset (4 tiles) + tile offset + y tile offset + x tile offset
                     tiles[tile][y][x] = pixels[if tile < 12 {256*64*(tile/4)} else {0} + tile*64 + 256*y + x];
                 }
@@ -85,20 +83,36 @@ impl Key {
         Ok(())
     }
 
+    // returns the colour of the key
+    // will panic if there is nothing occupying the tile (excluding background and grid)
+    fn identify_key_colour(&self, tile: &[[Rgb<u8>; 64]; 64]) -> Rgb<u8> {
+        let pixels: Vec<&Rgb<u8>> = tile
+            .iter()
+            .flat_map(|row| {
+                row.iter()
+                    .filter(|&p| *p != self.background && *p != self.grid)
+            })
+            .collect();
+
+        *pixels[0]
+    }
+
     // read each 64x64 "tile" and apply the colour inside to the key structure
     fn read_keys(&mut self, image: &image::DynamicImage) {
         self.identify_background(image);
 
         let tiles = self.image_to_tiles(image);
         self.save_tiles(&tiles).unwrap();
+        // TODO: find better way of finding key grid colour
+        self.grid = tiles[0][0][0];
 
-        // self.zero = *tiles[0][0];
-        // self.increment = *tiles[1][0];
-        // self.decrement = *tiles[2][0];
-        // self.access = *tiles[3][0];
-        // self.repeat = *tiles[4][0];
-        // self.string = *tiles[5][0];
-        // println!("{}", tiles[7][0][0]);
+        // TODO: better wat of doing all these actions like macro or something?
+        self.zero = self.identify_key_colour(&tiles[0]);
+        self.increment = self.identify_key_colour(&tiles[1]);
+        self.decrement = self.identify_key_colour(&tiles[2]);
+        self.access = self.identify_key_colour(&tiles[3]);
+        self.repeat = self.identify_key_colour(&tiles[4]);
+        self.string = self.identify_key_colour(&tiles[5]);
     }
 }
 
