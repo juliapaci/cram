@@ -52,25 +52,54 @@ impl Key {
         self.background = *background.0;
     }
 
+    fn image_to_tiles(&mut self, image: &image::DynamicImage) -> [[[Rgb<u8>; 64]; 64]; 16]{
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().map(|&p| p).collect();
+        // TODO: dont put this here & make better way of finding key grid colour
+        self.grid = pixels[0];
+
+        let mut tiles: [[[Rgb<u8>; 64]; 64]; 16] = [[[Rgb([0, 0, 0]); 64]; 64]; 16];
+        for tile in 0..16 {
+            for y in 0..64 {
+                for x in 0..64 {
+                    // TODO: fix slight errors where each row gets increasingly offset by 1 pixel. (luckily doesnt effet key parsing)
+                    // row of tiles offset (4 tiles) + tile offset + y tile offset + x tile offset
+                    tiles[tile][y][x] = pixels[if tile < 12 {256*64*(tile/4)} else {0} + tile*64 + 256*y + x];
+                }
+            }
+        }
+
+        tiles
+    }
+
+    fn save_tiles(&self, tiles: &[[[Rgb<u8>; 64]; 64]; 16]) -> Result<(), image::ImageError>{
+        for (i, tile) in tiles.iter().enumerate() {
+            let mut img = image::RgbImage::new(64, 64);
+            for (y, column) in tile.iter().enumerate() {
+                for (x, row) in column.iter().enumerate() {
+                    img.put_pixel(x as u32, y as u32, *row);
+                }
+            }
+            img.save(format!("tile{}.png", i))?;
+        }
+
+        Ok(())
+    }
+
     // read each 64x64 "tile" and apply the colour inside to the key structure
     fn read_keys(&mut self, image: &image::DynamicImage) {
         self.identify_background(image);
 
-        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().map(|&p| p).collect();
-        self.grid = pixels[0];
+        let tiles = self.image_to_tiles(image);
+        self.save_tiles(&tiles).unwrap();
 
-        let mut tiles: Vec<Rgb<u8>> = pixels
-            .chunks_exact(64)
-            .flat_map(|chunk| chunk.iter())
-            .filter(|&&c| c != self.background && c != self.grid)
-            .cloned()
-            .collect();
-
-        for i in tiles.iter() {
-            println!("{}, {}, {}", i[0], i[1], i[2]);
-        }
+        // self.zero = *tiles[0][0];
+        // self.increment = *tiles[1][0];
+        // self.decrement = *tiles[2][0];
+        // self.access = *tiles[3][0];
+        // self.repeat = *tiles[4][0];
+        // self.string = *tiles[5][0];
+        // println!("{}", tiles[7][0][0]);
     }
-
 }
 
 struct Lexer {
@@ -100,7 +129,6 @@ pub fn deserialize(file_path: &String) -> Result<(), image::ImageError>{
     // lex(&image);
     let mut lex = Lexer::new();
     lex.key.read_keys(&image);
-    println!("background colour: {}, {}, {}", lex.key.background[0], lex.key.background[1], lex.key.background[2]);
 
     // image.save("output.png")?;
 
