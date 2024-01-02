@@ -6,7 +6,7 @@ heres kinda what i want to achieve:
 - also an interpreter and some kind of an intermediate language
 
 # Files
-Cram program files depend on a ruleset defined by the user in a keys image file
+Crams project specific syntax is defined by the user in a keys image file
 The key file contains the symbols and colours of each token
 an example key image file can be found [here](examples/key.png)
 
