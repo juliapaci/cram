@@ -6,4 +6,4 @@ Im writing this in rust as a learning experience! this means that code from me m
 This is also my first time doing languagey compiley stuff so yeah
 
 # Language
-[spec](spec.md)
+[spec](SPEC.md)
