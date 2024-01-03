@@ -7,7 +7,8 @@ use std::collections::HashMap;
 struct KeyData {
     colour: Rgb<u8>,
     width: u16,
-    height: u16
+    height: u16,
+    amount: u32
 }
 
 impl KeyData {
@@ -15,7 +16,8 @@ impl KeyData {
         Self {
             colour: Rgb([0, 0, 0]),
             width: 0,
-            height: 0
+            height: 0,
+            amount: 0
         }
     }
 }
@@ -62,12 +64,12 @@ impl Key {
         [&self.zero, &self.increment, &self.decrement, &self.access, &self.repeat, &self.string, &self.line_break]
     }
 
-    // gets the width and height of keys that are of the specified colour
-    fn rect_from_colour(&self, colour: Rgb<u8>) -> Vec<[u16; 2]> {
+    // gets the KeyData of keys that are of the specified colour
+    fn data_from_colour(&self, colour: Rgb<u8>) -> Vec<&KeyData> {
         self.as_array().iter()
             .filter(|&k| k.colour == colour)
-            .map(|k| [k.width, k.height])
-            .collect::<Vec<[u16; 2]>>()
+            .copied()
+            .collect::<Vec<&KeyData>>()
     }
 
     // TODO: make function that gives the left offset (relative to the width of the key) of the first pixel in the tile
@@ -78,8 +80,7 @@ impl Key {
     fn identify_background(&mut self, image: &image::DynamicImage) {
         let mut histogram: HashMap<Rgb<u8>, usize> = HashMap::new();
         for pixel in image.to_rgb8().pixels() {
-            let counter = histogram.entry(*pixel).or_insert(0);
-            *counter += 1;
+            histogram.entry(*pixel).and_modify(|count| *count += 1).or_insert(1);
         }
 
         let background = histogram
@@ -93,7 +94,7 @@ impl Key {
     // TODO: make it more flexible so the key file isnt restricted to a certain resolution
     // splits an image into 64x64 chunks
     fn image_to_tiles(&mut self, image: &image::DynamicImage) -> [[[Rgb<u8>; 64]; 64]; 16]{
-        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().map(|&p| p).collect();
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
 
         let mut tiles: [[[Rgb<u8>; 64]; 64]; 16] = [[[Rgb([0, 0, 0]); 64]; 64]; 16];
         for tile in 0..16 {
@@ -123,25 +124,48 @@ impl Key {
         Ok(())
     }
 
-    // returns the KeyData (colour, size) of the key in a tile
+    // checks if the background colour lies between non background colours so we dont filter the middle part of the keys out
+    fn is_between(row: &Vec<Rgb<u8>>, target: usize) -> bool {
+        if target <= 0 || target >= row.len() {
+            return false;
+        }
+
+        let mut positions: Vec<usize> = Vec::new();
+        for (i, pixel) in row.iter().enumerate() {
+            if *pixel != row[target] {
+                positions.push(i);
+            }
+        }
+
+
+        println!("{}, {}", target, !(positions.contains(&(target-1)) && positions.contains(&(target+1))));
+        !(positions.contains(&(target-1)) && positions.contains(&(target+1)))
+    }
+
+    // returns the KeyData of the key in a tile
     // will panic if there is nothing occupying the tile (or exclusively background and grid pixels)
     fn identify_key_data(&self, tile: &[[Rgb<u8>; 64]; 64]) -> KeyData {
         let key: Vec<Vec<&Rgb<u8>>> = tile
             .iter()
             .map(|row| {
-                row.iter()
-                    .filter(|&p| *p != self.background && *p != self.grid)
+                row.iter().enumerate()
+                    .filter(|(i, &p)| (p != self.background && p != self.grid)
+                            || Self::is_between(&row.to_vec(), *i))
+                    .map(|(_, p)| p)
                     .collect()
             })
             .filter(|row: &Vec<&Rgb<u8>>| !row.is_empty())
             .collect();
 
+        println!("{}", key.iter().map(Vec::len).max().unwrap());
         KeyData {
             colour: *key[0][0],
             // each row is garunteed to exist with data so we can safely unwrap()
-            width: key.iter().map(|row| row.len()).max().unwrap_or(0) as u16,
-            height: key.len() as u16
+            width: key.iter().map(|row| row.len()).max().unwrap() as u16,
+            height: key.len() as u16,
+            amount: key.iter().map(Vec::len).sum::<usize>() as u32
         }
+
     }
 
     // read each 64x64 "tile" and apply the colour inside to the key structure
@@ -187,6 +211,11 @@ impl Tile {
             height
         }
     }
+
+    fn overlapping(a: &Tile, b: &Tile) -> bool {
+        a.x + a.width as usize >= b.x &&
+            a.y + a.height as usize >= b.y
+    }
 }
 
 impl Lexer {
@@ -200,7 +229,7 @@ impl Lexer {
     // returns the amount of same coloured pixels in a tile
     pub fn compute_tile(tile: Tile, image: &image::DynamicImage, colour: Rgb<u8>) -> u32 {
         // TODO: to stop computing this everywhere maybe make a getter for it or something
-        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().map(|&p| p).collect();
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut amount = 0;
 
         // i hate that we have to do this in rust. its saefe not to but the compiler still complains :(
@@ -219,37 +248,48 @@ impl Lexer {
         amount
     }
 
-    pub fn lex(&self, image: &image::DynamicImage) {
+    pub fn analyse(&self, image: &image::DynamicImage) {
         let tokens: Vec<u8> = Vec::new();
 
-        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().map(|&p| p).collect();
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
 
         // denoting a gap between keys, used to differentiate multiple keys that have the same colour
         let gap: KeyData = KeyData {
             colour: self.key.background,
             width: 64,
-            height: 1
+            height: 1,
+            amount: 64
         };
 
-        // will keep track of "key" tokens that have been encountered
-        let mut token_buffer: HashMap<Rgb<u8>, usize> = HashMap::new();
-        for (i, pixel) in pixels.iter().enumerate() {
-            let size = token_buffer.entry(*pixel).or_insert(0);
-            *size += 1;
+        let mut token_buffer: Vec<u8> = Vec::new();
+        let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();        // colours to ignore at any given point. used to not re tile keys
 
-            if *pixel == self.key.background || *pixel == self.key.ignore {
+        for (i, pixel) in pixels.iter().enumerate() {
+            if *pixel == self.key.background /* || *pixel == self.key.ignore */ {
                 // TODO: check for gaps
                 continue;
             }
 
-            // TODO: dont tile for same pixel for smallest amount pixels of keys with same colour after first one
-            // checking if the amount of pixels in the key is the same as in this tile
-            let rects = self.key.rect_from_colour(*pixel);
-            for rect in rects {
+            // checking if where in an area thats already been checked
+            if let Some(tile) = ignore.get(pixel) {
+                if Tile::overlapping(&Tile::from_1d(i, 1, 1, image), tile) {
+                    continue;
+                }
+            }
+
+            // checking if the amount of pixels in the key is the same as in this tile. aiming to match lexical keys to abitrary symbols
+            let keys = self.key.data_from_colour(*pixel);
+            for key in keys {
+                // println!("checking ({}, {}, {})", key.width, key.height, key.colour[0]);
                 if Self::compute_tile(
-                    Tile::from_1d(i, rect[0], rect[1], image),
-                    image, *pixel) == rect[0] as u32 * rect[1] as u32 {
-                    println!("match");
+                    Tile::from_1d(i, key.width, key.height, image),
+                    image, *pixel) == key.amount {
+                    token_buffer.push(0);
+
+                    // dont re tile the same area
+                    ignore.insert(*pixel, Tile::from_1d(i, key.width, key.height, &image));
+
+                    println!("match ({}, {})", key.width, key.height);
                 }
             }
         }
@@ -263,7 +303,7 @@ pub fn deserialize(key: &String, source: &String) -> Result<(), image::ImageErro
     let mut lex = Lexer::new();
     lex.key.read_keys(&key_img);
 
-    lex.lex(&source_img);
+    lex.analyse(&source_img);
 
     Ok(())
 }
