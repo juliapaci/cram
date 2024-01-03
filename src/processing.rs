@@ -138,10 +138,9 @@ impl Key {
     }
 
     // reads the key but doesnt remove parts within it. Useful for reading hollow keys
-    fn outline_key(&self, tile: &[[Rgb<u8>; 64]; 64]) -> bool {
-        let mut hollow = false;
+    fn outline_key(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
+        let mut key: Vec<Vec<Rgb<u8>>> = Vec::new();
 
-        let mut key: Vec<Vec<&Rgb<u8>>> = Vec::new();
         for row in tile {
             let first = match row.iter().position(|&p| p != self.background && p != self.grid) {
                 Some(i) => i,
@@ -156,65 +155,49 @@ impl Key {
             };
 
             // trim the background outside the key
-            row[..first]
+            let mut left: Vec<Rgb<u8>> = row[..first]
                 .iter()
-                .filter(|&p| *p != self.background && *p != self.grid);
-            row[last..]
+                .filter(|&p| *p != self.background && *p != self.grid)
+                .copied()
+                .collect();
+            let mut right: Vec<Rgb<u8>> = row[last..]
                 .iter()
-                .filter(|&p| *p != self.background && *p != self.grid);
+                .filter(|&p| *p != self.background && *p != self.grid)
+                .copied()
+                .collect();
+            let mut middle = row[first..last].to_vec();
 
+            left.append(&mut middle);
+            left.append(&mut right);
 
-            key.push(row);
-
+            key.push(left);
         }
 
-        hollow
-    }
+        let filtered: Vec<Vec<&Rgb<u8>>>= key
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .filter(|&p| *p != self.background && *p != self.grid)
+                    .collect::<Vec<&Rgb<u8>>>()
+            })
+            .collect();
 
-    // // reads hollow keys
-    // fn read_hollow(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
-    //     // KeyData::new()
-    //     let key: Vec<Vec<&Rgb<u8>>> = tile
-    //         .iter()
-    //         .map(|row| {
-    //             row.iter()
-    //                 // .filter()
-    //                 .collect()
-    //         })
-    //     .filter(|row| !row.is_empty())
-    //         .collect()
-    // }
-    //
-    // // read keys that arent hollow
-    // fn read_solid(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
-    //     let key: Vec<Vec<&Rgb<u8>>> = tile
-    //         .iter()
-    //         .map(|row| {
-    //             row.iter()
-    //                 .filter(|&p| *p != self.background && *p != self.grid)
-    //                 .collect()
-    //         })
-    //         .filter(|row: &Vec<&Rgb<u8>>| !row.is_empty())
-    //         .collect();
-    //
-    //     KeyData {
-    //         token,
-    //         colour: *key[0][0],
-    //         // each row is garunteed to exist with data so we can safely unwrap()
-    //         width: key.iter().map(|row| row.len()).max().unwrap() as u16,
-    //         height: key.len() as u16,
-    //         amount: key.iter().map(Vec::len).sum::<usize>() as u32
-    //     }
-    // }
+        KeyData {
+            token,
+            colour: key[0][0],
+            // each row is garunteed to exist with data so we can safely unwrap()
+            width: key.iter().map(|row| row.len()).max().unwrap() as u16,
+            height: key.len() as u16,
+            amount: filtered.iter().map(Vec::len).sum::<usize>() as u32
+
+        }
+    }
 
     // returns the KeyData of the key in a tile
     // will panic if there is nothing occupying the tile (or exclusively background and grid pixels)
     fn identify_key_data(&self, tile: &[[Rgb<u8>; 64]; 64], token: u8) -> KeyData {
         // unsafe is fine since we are hardcoding the possible values of teken
-        match self.is_hollow(tile) {
-            true => self.read_hollow(tile, unsafe {std::mem::transmute(token)}),
-            false => self.read_solid(tile, unsafe {std::mem::transmute(token)})
-        }
+        self.outline_key(tile, unsafe {std::mem::transmute(token)})
     }
 
     // read each 64x64 "tile" and apply the colour inside to the key structure
