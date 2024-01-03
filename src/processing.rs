@@ -1,10 +1,22 @@
 use image::io::Reader as ImageReader;
-use image::{GenericImageView, Rgb};
+use image::Rgb;
 
 use std::collections::HashMap;
 
-// what the colours mean
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Token {
+    Zero,
+    Increment,
+    Decrement,
+    Access,
+    Repeat,
+    Quote,
+    LineBreak
+}
+
+// data for the tokens
 struct KeyData {
+    token: Token,
     colour: Rgb<u8>,
     width: u16,
     height: u16,
@@ -14,6 +26,7 @@ struct KeyData {
 impl KeyData {
     fn new() -> Self {
         Self {
+            token: Token::Zero,
             colour: Rgb([0, 0, 0]),
             width: 0,
             height: 0,
@@ -31,7 +44,7 @@ struct Key {
     repeat: KeyData,        // jump based on a condition
 
     // language syntax
-    string: KeyData,        // for string literals
+    quote: KeyData,         // for string literals
     line_break: KeyData,    // denotes a line seperation of multiple lines on the same row
 
     // not a token
@@ -49,7 +62,7 @@ impl Key {
             access: KeyData::new(),
             repeat: KeyData::new(),
 
-            string: KeyData::new(),
+            quote: KeyData::new(),
             line_break: KeyData::new(),
 
             ignore: Rgb([0, 0, 0]),
@@ -61,7 +74,7 @@ impl Key {
     // TODO: dont hardcode the size & maybe use a macro or something or use serde
     // converts the members of key to an array, excluding some members
     fn as_array(&self) -> [&KeyData; 7]  {
-        [&self.zero, &self.increment, &self.decrement, &self.access, &self.repeat, &self.string, &self.line_break]
+        [&self.zero, &self.increment, &self.decrement, &self.access, &self.repeat, &self.quote, &self.line_break]
     }
 
     // gets the KeyData of keys that are of the specified colour
@@ -124,41 +137,23 @@ impl Key {
         Ok(())
     }
 
-    // checks if the background colour lies between non background colours so we dont filter the middle part of the keys out
-    fn is_between(row: &Vec<Rgb<u8>>, target: usize) -> bool {
-        if target <= 0 || target >= row.len() {
-            return false;
-        }
-
-        let mut positions: Vec<usize> = Vec::new();
-        for (i, pixel) in row.iter().enumerate() {
-            if *pixel != row[target] {
-                positions.push(i);
-            }
-        }
-
-
-        println!("{}, {}", target, !(positions.contains(&(target-1)) && positions.contains(&(target+1))));
-        !(positions.contains(&(target-1)) && positions.contains(&(target+1)))
-    }
-
     // returns the KeyData of the key in a tile
     // will panic if there is nothing occupying the tile (or exclusively background and grid pixels)
-    fn identify_key_data(&self, tile: &[[Rgb<u8>; 64]; 64]) -> KeyData {
+    fn identify_key_data(&self, tile: &[[Rgb<u8>; 64]; 64], token: u8) -> KeyData {
+        // TODO: dont filter out background pixels which are inside a key. see key example constant 0 for example
         let key: Vec<Vec<&Rgb<u8>>> = tile
             .iter()
             .map(|row| {
-                row.iter().enumerate()
-                    .filter(|(i, &p)| (p != self.background && p != self.grid)
-                            || Self::is_between(&row.to_vec(), *i))
-                    .map(|(_, p)| p)
+                row.iter()
+                    .filter(|&p| *p != self.background && *p != self.grid)
                     .collect()
             })
             .filter(|row: &Vec<&Rgb<u8>>| !row.is_empty())
             .collect();
 
-        println!("{}", key.iter().map(Vec::len).max().unwrap());
         KeyData {
+            // unsafe is fine since we are hardcoding the possible values
+            token: unsafe {std::mem::transmute(token)},
             colour: *key[0][0],
             // each row is garunteed to exist with data so we can safely unwrap()
             width: key.iter().map(|row| row.len()).max().unwrap() as u16,
@@ -178,19 +173,14 @@ impl Key {
         self.grid = tiles[0][0][0];
 
         // TODO: better wat of doing all these actions like macro or something?
-        self.zero = self.identify_key_data(&tiles[0]);
-        self.increment = self.identify_key_data(&tiles[1]);
-        self.decrement = self.identify_key_data(&tiles[2]);
-        self.access = self.identify_key_data(&tiles[3]);
-        self.repeat = self.identify_key_data(&tiles[4]);
-        self.string = self.identify_key_data(&tiles[5]);
-        self.line_break = self.identify_key_data(&tiles[6]);
+        self.zero = self.identify_key_data(&tiles[0], 0);
+        self.increment = self.identify_key_data(&tiles[1], 1);
+        self.decrement = self.identify_key_data(&tiles[2], 2);
+        self.access = self.identify_key_data(&tiles[3], 3);
+        self.repeat = self.identify_key_data(&tiles[4], 4);
+        self.quote = self.identify_key_data(&tiles[5], 5);
+        self.line_break = self.identify_key_data(&tiles[6], 6);
     }
-}
-
-struct Lexer {
-    key: Key,
-    tokens: Vec<u8>
 }
 
 // TODO: refactor Key parsing to use this
@@ -213,9 +203,14 @@ impl Tile {
     }
 
     fn overlapping(a: &Tile, b: &Tile) -> bool {
-        a.x + a.width as usize >= b.x &&
-            a.y + a.height as usize >= b.y
+        (a.x + a.width as usize >= b.x && b.x + b.width as usize >= a.x) &&
+            (a.y + a.height as usize >= b.y && b.y + b.height as usize >= a.y)
     }
+}
+
+struct Lexer {
+    key: Key,
+    tokens: Vec<Token>
 }
 
 impl Lexer {
@@ -227,7 +222,7 @@ impl Lexer {
     }
 
     // returns the amount of same coloured pixels in a tile
-    pub fn compute_tile(tile: Tile, image: &image::DynamicImage, colour: Rgb<u8>) -> u32 {
+    pub fn compute_tile(tile: &Tile, image: &image::DynamicImage, colour: Rgb<u8>) -> u32 {
         // TODO: to stop computing this everywhere maybe make a getter for it or something
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut amount = 0;
@@ -237,7 +232,7 @@ impl Lexer {
         for y in 0..tile.height as usize {
             for x in left..tile.width as isize {
                 let index: isize = (tile.x as isize)+x + ((tile.y + y)*(image.width() as usize)) as isize;
-                if index < 0 || index > (image.width()*image.height()) as isize {
+                if index < 0 || index >= (image.width()*image.height()) as isize {
                     continue;
                 }
 
@@ -248,20 +243,20 @@ impl Lexer {
         amount
     }
 
-    pub fn analyse(&self, image: &image::DynamicImage) {
-        let tokens: Vec<u8> = Vec::new();
+    pub fn analyse(&mut self, image: &image::DynamicImage) {
+        let mut tokens: Vec<Token> = Vec::new();
 
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
 
         // denoting a gap between keys, used to differentiate multiple keys that have the same colour
         let gap: KeyData = KeyData {
+            token: Token::Zero, // token doesnt matter
             colour: self.key.background,
             width: 64,
             height: 1,
             amount: 64
         };
 
-        let mut token_buffer: Vec<u8> = Vec::new();
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();        // colours to ignore at any given point. used to not re tile keys
 
         for (i, pixel) in pixels.iter().enumerate() {
@@ -280,19 +275,20 @@ impl Lexer {
             // checking if the amount of pixels in the key is the same as in this tile. aiming to match lexical keys to abitrary symbols
             let keys = self.key.data_from_colour(*pixel);
             for key in keys {
-                // println!("checking ({}, {}, {})", key.width, key.height, key.colour[0]);
-                if Self::compute_tile(
-                    Tile::from_1d(i, key.width, key.height, image),
-                    image, *pixel) == key.amount {
-                    token_buffer.push(0);
+                let tile = Tile::from_1d(i, key.width, key.height, image);
+                if Self::compute_tile(&tile, image, *pixel) == key.amount {
+                    tokens.push(key.token);
+
+                    // println!("{}, {}", tile.x, tile.y);
 
                     // dont re tile the same area
-                    ignore.insert(*pixel, Tile::from_1d(i, key.width, key.height, &image));
-
-                    println!("match ({}, {})", key.width, key.height);
+                    ignore.insert(*pixel, tile);
                 }
             }
         }
+
+        println!("{:?}", tokens);
+        self.tokens = tokens;
     }
 }
 
