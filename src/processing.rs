@@ -1,5 +1,5 @@
 use image::io::Reader as ImageReader;
-use image::Rgb;
+use image::{GenericImage, Rgb, GenericImageView, Pixel};
 
 use std::collections::HashMap;
 
@@ -123,20 +123,6 @@ impl Key {
         tiles
     }
 
-    fn save_tiles(&self, tiles: &[[[Rgb<u8>; 64]; 64]; 16]) -> Result<(), image::ImageError>{
-        for (i, tile) in tiles.iter().enumerate() {
-            let mut img = image::RgbImage::new(64, 64);
-            for (y, column) in tile.iter().enumerate() {
-                for (x, row) in column.iter().enumerate() {
-                    img.put_pixel(x as u32, y as u32, *row);
-                }
-            }
-            img.save(format!("tile{}.png", i))?;
-        }
-
-        Ok(())
-    }
-
     // reads the key but doesnt remove parts within it. Useful for reading hollow keys
     fn outline_key(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
         let mut key: Vec<Vec<Rgb<u8>>> = Vec::new();
@@ -205,7 +191,9 @@ impl Key {
         self.identify_background(image);
 
         let tiles = self.image_to_tiles(image);
-        self.save_tiles(&tiles).unwrap();
+        for (i, tile) in tiles.iter().enumerate() {
+            Tile::from_1d(if i < 12 {256*64*(i/4)} else {0} + i*64 , 64, 64, image).save_tiles(image, format!("tile{}.png", i)).unwrap();
+        }
         // TODO: find better way of finding key grid colour
         self.grid = tiles[0][0][0];
 
@@ -242,6 +230,23 @@ impl Tile {
     fn overlapping(a: &Tile, b: &Tile) -> bool {
         (a.x + a.width as usize >= b.x && b.x + b.width as usize >= a.x) &&
             (a.y + a.height as usize >= b.y && b.y + b.height as usize >= a.y)
+    }
+
+    fn save_tiles(&self, source: &image::DynamicImage, name: String) -> Result<(), image::ImageError>{
+        let mut img = image::RgbImage::new(self.width as u32, self.height as u32);
+
+        for y in 0..self.height as u32 {
+            for x in 0..self.width as u32 {
+                if (x < img.width() && y < img.height()) &&
+                    (self.x as u32 + x < source.width() && self.y as u32 + y < source.height()) {
+                    img.put_pixel(x as u32, y as u32,
+                                  source.get_pixel(self.x as u32 + x, self.y as u32 + y).to_rgb());
+                }
+            }
+        }
+
+        img.save(name)?;
+        Ok(())
     }
 }
 
