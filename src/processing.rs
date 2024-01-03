@@ -137,10 +137,11 @@ impl Key {
         Ok(())
     }
 
-    // is the key hollow (theres background pixels in between parts of the key)
-    fn is_hollow(&self, tile: &[[Rgb<u8>; 64]; 64]) -> bool {
+    // reads the key but doesnt remove parts within it. Useful for reading hollow keys
+    fn outline_key(&self, tile: &[[Rgb<u8>; 64]; 64]) -> bool {
         let mut hollow = false;
 
+        let mut key: Vec<Vec<&Rgb<u8>>> = Vec::new();
         for row in tile {
             let first = match row.iter().position(|&p| p != self.background && p != self.grid) {
                 Some(i) => i,
@@ -154,50 +155,57 @@ impl Key {
                 None => continue
             };
 
-            if row[first..last].iter().any(|&p| p == self.background) {
-                hollow = true;
-                break;
-            }
+            // trim the background outside the key
+            row[..first]
+                .iter()
+                .filter(|&p| *p != self.background && *p != self.grid);
+            row[last..]
+                .iter()
+                .filter(|&p| *p != self.background && *p != self.grid);
+
+
+            key.push(row);
+
         }
 
         hollow
     }
 
-    // reads hollow keys
-    fn read_hollow(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
-        KeyData::new()
-        // let key: Vec<Vec<Rgb<u8>>> = tile
-        //     .iter()
-        //     .map(|row| {
-        //         row.iter()
-        //             // .filter()
-        //             .collect()
-        //     })
-        // .filter(|row| !row.is_empty())
-        //     .collect()
-    }
-
-    // read keys that arent hollow
-    fn read_solid(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
-        let key: Vec<Vec<&Rgb<u8>>> = tile
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .filter(|&p| *p != self.background && *p != self.grid)
-                    .collect()
-            })
-            .filter(|row: &Vec<&Rgb<u8>>| !row.is_empty())
-            .collect();
-
-        KeyData {
-            token,
-            colour: *key[0][0],
-            // each row is garunteed to exist with data so we can safely unwrap()
-            width: key.iter().map(|row| row.len()).max().unwrap() as u16,
-            height: key.len() as u16,
-            amount: key.iter().map(Vec::len).sum::<usize>() as u32
-        }
-    }
+    // // reads hollow keys
+    // fn read_hollow(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
+    //     // KeyData::new()
+    //     let key: Vec<Vec<&Rgb<u8>>> = tile
+    //         .iter()
+    //         .map(|row| {
+    //             row.iter()
+    //                 // .filter()
+    //                 .collect()
+    //         })
+    //     .filter(|row| !row.is_empty())
+    //         .collect()
+    // }
+    //
+    // // read keys that arent hollow
+    // fn read_solid(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
+    //     let key: Vec<Vec<&Rgb<u8>>> = tile
+    //         .iter()
+    //         .map(|row| {
+    //             row.iter()
+    //                 .filter(|&p| *p != self.background && *p != self.grid)
+    //                 .collect()
+    //         })
+    //         .filter(|row: &Vec<&Rgb<u8>>| !row.is_empty())
+    //         .collect();
+    //
+    //     KeyData {
+    //         token,
+    //         colour: *key[0][0],
+    //         // each row is garunteed to exist with data so we can safely unwrap()
+    //         width: key.iter().map(|row| row.len()).max().unwrap() as u16,
+    //         height: key.len() as u16,
+    //         amount: key.iter().map(Vec::len).sum::<usize>() as u32
+    //     }
+    // }
 
     // returns the KeyData of the key in a tile
     // will panic if there is nothing occupying the tile (or exclusively background and grid pixels)
