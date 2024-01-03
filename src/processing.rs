@@ -137,10 +137,48 @@ impl Key {
         Ok(())
     }
 
-    // returns the KeyData of the key in a tile
-    // will panic if there is nothing occupying the tile (or exclusively background and grid pixels)
-    fn identify_key_data(&self, tile: &[[Rgb<u8>; 64]; 64], token: u8) -> KeyData {
-        // TODO: dont filter out background pixels which are inside a key. see key example constant 0 for example
+    // is the key hollow (theres background pixels in between parts of the key)
+    fn is_hollow(&self, tile: &[[Rgb<u8>; 64]; 64]) -> bool {
+        let mut hollow = false;
+
+        for row in tile {
+            let first = match row.iter().position(|&p| p != self.background && p != self.grid) {
+                Some(i) => i,
+                None => continue
+            };
+
+            // dont need to copy this but im assuming that we will need to when we identify more
+            // specific attributes of each key so im leaving this here
+            let last = match row.iter().copied().rev().position(|p| p != self.background && p != self.grid) {
+                Some(i) => row.len() - i,
+                None => continue
+            };
+
+            if row[first..last].iter().any(|&p| p == self.background) {
+                hollow = true;
+                break;
+            }
+        }
+
+        hollow
+    }
+
+    // reads hollow keys
+    fn read_hollow(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
+        KeyData::new()
+        // let key: Vec<Vec<Rgb<u8>>> = tile
+        //     .iter()
+        //     .map(|row| {
+        //         row.iter()
+        //             // .filter()
+        //             .collect()
+        //     })
+        // .filter(|row| !row.is_empty())
+        //     .collect()
+    }
+
+    // read keys that arent hollow
+    fn read_solid(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
         let key: Vec<Vec<&Rgb<u8>>> = tile
             .iter()
             .map(|row| {
@@ -152,15 +190,23 @@ impl Key {
             .collect();
 
         KeyData {
-            // unsafe is fine since we are hardcoding the possible values
-            token: unsafe {std::mem::transmute(token)},
+            token,
             colour: *key[0][0],
             // each row is garunteed to exist with data so we can safely unwrap()
             width: key.iter().map(|row| row.len()).max().unwrap() as u16,
             height: key.len() as u16,
             amount: key.iter().map(Vec::len).sum::<usize>() as u32
         }
+    }
 
+    // returns the KeyData of the key in a tile
+    // will panic if there is nothing occupying the tile (or exclusively background and grid pixels)
+    fn identify_key_data(&self, tile: &[[Rgb<u8>; 64]; 64], token: u8) -> KeyData {
+        // unsafe is fine since we are hardcoding the possible values of teken
+        match self.is_hollow(tile) {
+            true => self.read_hollow(tile, unsafe {std::mem::transmute(token)}),
+            false => self.read_solid(tile, unsafe {std::mem::transmute(token)})
+        }
     }
 
     // read each 64x64 "tile" and apply the colour inside to the key structure
@@ -243,6 +289,7 @@ impl Lexer {
         amount
     }
 
+    // TODO: read left to right not top to bottom
     pub fn analyse(&mut self, image: &image::DynamicImage) {
         let mut tokens: Vec<Token> = Vec::new();
 
@@ -276,10 +323,9 @@ impl Lexer {
             let keys = self.key.data_from_colour(*pixel);
             for key in keys {
                 let tile = Tile::from_1d(i, key.width, key.height, image);
+
                 if Self::compute_tile(&tile, image, *pixel) == key.amount {
                     tokens.push(key.token);
-
-                    // println!("{}, {}", tile.x, tile.y);
 
                     // dont re tile the same area
                     ignore.insert(*pixel, tile);
@@ -298,8 +344,10 @@ pub fn deserialize(key: &String, source: &String) -> Result<(), image::ImageErro
 
     let mut lex = Lexer::new();
     lex.key.read_keys(&key_img);
+    println!("Finished reading keys");
 
     lex.analyse(&source_img);
+    println!("Finished tokenizing");
 
     Ok(())
 }
