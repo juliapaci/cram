@@ -18,8 +18,9 @@ enum Token {
 struct KeyData {
     token: Token,
     colour: Rgb<u8>,
-    width: u16,
-    height: u16,
+    left_width: u8,    // width of key left of first pixel (top left)
+    right_width: u8,   // width of key right of first pixel (top left)
+    height: u8,
     amount: u32
 }
 
@@ -28,7 +29,8 @@ impl KeyData {
         Self {
             token: Token::Zero,
             colour: Rgb([0, 0, 0]),
-            width: 0,
+            left_width: 0,
+            right_width: 0,
             height: 0,
             amount: 0
         }
@@ -125,6 +127,7 @@ impl Key {
 
     // reads the key but doesnt remove parts within it. Useful for reading hollow keys
     fn outline_key(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
+        // the trimmed key
         let mut key: Vec<Vec<Rgb<u8>>> = Vec::new();
 
         for row in tile {
@@ -140,7 +143,7 @@ impl Key {
                 None => continue
             };
 
-            // trim the background outside the key
+            // trim around the key (the background outside)
             let mut left: Vec<Rgb<u8>> = row[..first]
                 .iter()
                 .filter(|&p| *p != self.background && *p != self.grid)
@@ -159,6 +162,27 @@ impl Key {
             key.push(left);
         }
 
+        let first_pixel = tile
+            .iter()
+            .filter(|row| {
+                row
+                    .iter()
+                    .any(|&p| p != self.background && p != self.grid)
+            })
+            .flat_map(|row| row.iter())
+            .position(|&p| p != self.background && p != self.grid)
+            .unwrap();
+
+        let left_most = tile
+            .iter()
+            .map(|row| {
+                row
+                    .iter()
+                    .position(|&p| p != self.background && p != self.grid)
+                    .unwrap_or(64)
+            })
+            .min().unwrap();
+
         let filtered: Vec<Vec<&Rgb<u8>>>= key
             .iter()
             .map(|row| {
@@ -168,14 +192,15 @@ impl Key {
             })
             .collect();
 
+        // each row is garunteed to exist with data so we can safely unwrap()
+        let width = key.iter().map(Vec::len).max().unwrap() as i16;
         KeyData {
             token,
             colour: key[0][0],
-            // each row is garunteed to exist with data so we can safely unwrap()
-            width: key.iter().map(|row| row.len()).max().unwrap() as u16,
-            height: key.len() as u16,
+            left_width: (first_pixel as i16 - left_most as i16).abs() as u8,
+            right_width: (width - (first_pixel as i16 - left_most as i16)).abs() as u8,
+            height: key.len() as u8,
             amount: filtered.iter().map(Vec::len).sum::<usize>() as u32
-
         }
     }
 
@@ -191,12 +216,13 @@ impl Key {
         self.identify_background(image);
 
         let tiles = self.image_to_tiles(image);
-        for (i, tile) in tiles.iter().enumerate() {
-            Tile::from_1d(if i < 12 {256*64*(i/4)} else {0} + i*64 , 64, 64, image).save_tiles(image, format!("tile{}.png", i)).unwrap();
-        }
-        // TODO: find better way of finding key grid colour
-        self.grid = tiles[0][0][0];
+        // for (i, tile) in tiles.iter().enumerate() {
+        //     Tile::from_1d(if i < 12 {256*64*(i/4)} else {0} + i*64 , 64, 64, image)
+        //         .save_tile(image, format!("tile{}.png", i)).unwrap();
+        // }
 
+        // TODO: find better way of finding key grid colour like detect rangles or something
+        self.grid = tiles[0][0][0];
         // TODO: better wat of doing all these actions like macro or something?
         self.zero = self.identify_key_data(&tiles[0], 0);
         self.increment = self.identify_key_data(&tiles[1], 1);
@@ -209,16 +235,16 @@ impl Key {
 }
 
 // TODO: refactor Key parsing to use this
-// TODO: maybe refactor to 1d for the 1d pixel array from image
+#[derive(Debug)]
 struct Tile {
     x: usize,
     y: usize,
-    width: u16,
-    height: u16,
+    width: u8,
+    height: u8,
 }
 
 impl Tile {
-    fn from_1d(pos: usize, width: u16, height: u16, image: &image::DynamicImage) -> Self {
+    fn from_1d(pos: usize, width: u8, height: u8, image: &image::DynamicImage) -> Self {
         Self {
             x: pos%(image.width() as usize),
             y: pos/(image.width() as usize),
@@ -232,7 +258,7 @@ impl Tile {
             (a.y + a.height as usize >= b.y && b.y + b.height as usize >= a.y)
     }
 
-    fn save_tiles(&self, source: &image::DynamicImage, name: String) -> Result<(), image::ImageError>{
+    fn save_tile(&self, source: &image::DynamicImage, name: String) -> Result<(), image::ImageError>{
         let mut img = image::RgbImage::new(self.width as u32, self.height as u32);
 
         for y in 0..self.height as u32 {
@@ -269,16 +295,15 @@ impl Lexer {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut amount = 0;
 
-        // i hate that we have to do this in rust. its saefe not to but the compiler still complains :(
-        let left = -(tile.width as isize);
+        let bound = (image.width()*image.height()) as isize;
         for y in 0..tile.height as usize {
-            for x in left..tile.width as isize {
+            for x in 0..tile.width as isize {
                 let index: isize = (tile.x as isize)+x + ((tile.y + y)*(image.width() as usize)) as isize;
-                if index < 0 || index >= (image.width()*image.height()) as isize {
+                if index < 0 || index >= bound {
                     continue;
                 }
 
-                amount += (pixels[index as usize] == colour) as u32
+                amount += (pixels[index as usize] == colour) as u32;
             }
         }
 
@@ -295,13 +320,15 @@ impl Lexer {
         let gap: KeyData = KeyData {
             token: Token::Zero, // token doesnt matter
             colour: self.key.background,
-            width: 64,
+            left_width: 0,
+            right_width: 64,
             height: 1,
             amount: 64
         };
 
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();        // colours to ignore at any given point. used to not re tile keys
 
+        let mut amount: u32 = 0;
         for (i, pixel) in pixels.iter().enumerate() {
             if *pixel == self.key.background /* || *pixel == self.key.ignore */ {
                 // TODO: check for gaps
@@ -318,14 +345,17 @@ impl Lexer {
             // checking if the amount of pixels in the key is the same as in this tile. aiming to match lexical keys to abitrary symbols
             let keys = self.key.data_from_colour(*pixel);
             for key in keys {
-                let tile = Tile::from_1d(i, key.width, key.height, image);
+                let tile = Tile::from_1d(i - key.left_width as usize, key.left_width+key.right_width, key.height, image);
 
                 if Self::compute_tile(&tile, image, *pixel) == key.amount {
                     tokens.push(key.token);
 
-                    // dont re tile the same area
-                    ignore.insert(*pixel, tile);
+                    amount += 1;
+                    tile.save_tile(image, format!("tile{}.png", amount)).unwrap();
                 }
+
+                // dont re tile the same area
+                ignore.insert(*pixel, tile);
             }
         }
 
