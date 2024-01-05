@@ -322,8 +322,11 @@ impl Lexer {
     // return the height of the line
     // its just the tallest key that intersects a ray from the first keys middle row
     fn line_height(&self, begin: usize, image: &image::DynamicImage) -> u8 {
+        // TODO: middle row instead of top row
+
         // unwrapping is fine since there is always atleast one element when this function is called
         let first = self.key.data_from_key(*self.tokens.last().unwrap());
+        let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut max_height: u8 = first.height;
 
@@ -333,10 +336,16 @@ impl Lexer {
             // TODO: see if we should check if the key exists instead of just relying on one pixel
             //       pros: more accurate line height + possibly faster tokenization
             //       cons: slower + more accurate tokenization
+
             let colour = pixels[i+(begin/image.width() as usize * image.width() as usize)];
             if colour == self.key.background {
+                continue
+            }
+
+            if let Some(_) = ignore.get(&colour) {
                 continue;
             }
+            ignore.insert(colour, true);
 
             max_height = self.key
                 .data_from_colour(colour)
@@ -399,8 +408,8 @@ impl Lexer {
                 if Self::compute_tile(&tile, image, *pixel) == key.amount {
                     self.tokens.push(key.token);
                     if new_line_ready {
-                        // self.analyse_line(i, );
-                        println!("{}", self.line_height(i, image));
+                        self.analyse_line(i, image);
+                        new_line_ready = false;
                     }
                     if key.token == Token::LineBreak {
                         new_line_ready = true;
@@ -409,7 +418,7 @@ impl Lexer {
                     // debug stuff
                     amount += 1;
                     // tile.save_tile(image, format!("tile{}.png", amount)).unwrap();
-                    println!("found {:?} ({})", key.token, amount)
+                    println!("found {:?} ({})", key.token, amount);
                 }
 
                 // dont re tile the same area
