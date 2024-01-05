@@ -87,6 +87,14 @@ impl Key {
             .collect::<Vec<&KeyData>>()
     }
 
+    // returns the KeyData of a token
+    fn data_from_key(&self, key: Token) -> &KeyData {
+        // unsafe is fine since every token has an index in the array since its hardcoded (see as_array())
+        self
+            .as_array()
+            [unsafe {std::mem::transmute::<Token, u8>(key)} as usize]
+    }
+
     // TODO: make function that gives the left offset (relative to the width of the key) of the first pixel in the tile
     //       This will optimise searching tiles as it would reduce the amount of pixels that need to be search x2
     //       This will also fix a bug where multiple keys would be in one keys tile for the lexer
@@ -285,7 +293,7 @@ impl Lexer {
     fn new() -> Self {
         Self {
             key: Key::new(),
-            tokens: Vec::new()
+            tokens: Vec::new()  // Token buffer
         }
     }
 
@@ -300,7 +308,8 @@ impl Lexer {
             for x in 0..tile.width as isize {
                 let index: isize = (tile.x as isize)+x + ((tile.y + y)*(image.width() as usize)) as isize;
                 if index < 0 || index >= bound {
-                    continue;
+                    // continue;
+                    return 0;
                 }
 
                 amount += (pixels[index as usize] == colour) as u32;
@@ -310,33 +319,73 @@ impl Lexer {
         amount
     }
 
+    // return the height of the line
+    // its just the tallest key that intersects a ray from the first keys middle row
+    fn line_height(&self, begin: usize, image: &image::DynamicImage) -> u8 {
+        // unwrapping is fine since there is always atleast one element when this function is called
+        let first = self.key.data_from_key(*self.tokens.last().unwrap());
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+        let mut max_height: u8 = first.height;
+
+        for i in
+            (begin + first.right_width as usize)%image.width() as usize ..
+                image.width() as usize {
+            // TODO: see if we should check if the key exists instead of just relying on one pixel
+            //       pros: more accurate line height + possibly faster tokenization
+            //       cons: slower + more accurate tokenization
+            let colour = pixels[i+(begin/image.width() as usize * image.width() as usize)];
+            if colour == self.key.background {
+                continue;
+            }
+
+            max_height = self.key
+                .data_from_colour(colour)
+                .iter()
+                .map(|&k| k.height)
+                .max()
+                .unwrap()
+                .max(max_height);
+        }
+
+        max_height
+    }
+
+    // tokenizes a line of keys
+    // returns the 1d length of the line in pixels so the caller can skip it once analysed
+    fn analyse_line(&self, begin: usize, image: &image::DynamicImage) -> usize {
+        for i in begin..self.line_height(begin, image) as usize * image.width() as usize {
+
+        }
+
+        1
+    }
+
     // TODO: read left to right not top to bottom
     pub fn analyse(&mut self, image: &image::DynamicImage) {
-        let mut tokens: Vec<Token> = Vec::new();
+        let mut amount: u32 = 0; // amount of tokens
 
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+        let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();    // colours to ignore at any given point. used to not re tile keys
+        let mut new_line_ready = true;
 
-        // denoting a gap between keys, used to differentiate multiple keys that have the same colour
-        let gap: KeyData = KeyData {
-            token: Token::Zero, // token doesnt matter
-            colour: self.key.background,
-            left_width: 0,
-            right_width: 64,
-            height: 1,
-            amount: 64
-        };
-
-        let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();        // colours to ignore at any given point. used to not re tile keys
-
-        let mut amount: u32 = 0;
         for (i, pixel) in pixels.iter().enumerate() {
+            // TODO: implement lines
+            //       the line width is infinite until hits a line break
+            //       the line height is defined by the tallest key in the first keys middle row
+
+            // // if we hit the edge of the image. insert a line break
+            // if i%image.width() as usize == image.width() as usize - 1 {
+            //     tokens.push(Token::LineBreak);
+            //     continue;
+            // }
+
             if *pixel == self.key.background /* || *pixel == self.key.ignore */ {
-                // TODO: check for gaps
                 continue;
             }
 
             // checking if where in an area thats already been checked
             if let Some(tile) = ignore.get(pixel) {
+                // TODO: fix ignoring
                 if Tile::overlapping(&Tile::from_1d(i, 1, 1, image), tile) {
                     continue;
                 }
@@ -345,13 +394,22 @@ impl Lexer {
             // checking if the amount of pixels in the key is the same as in this tile. aiming to match lexical keys to abitrary symbols
             let keys = self.key.data_from_colour(*pixel);
             for key in keys {
-                let tile = Tile::from_1d(i - key.left_width as usize, key.left_width+key.right_width, key.height, image);
+                let tile = Tile::from_1d(i.max(key.left_width as usize) - key.left_width as usize, key.left_width+key.right_width, key.height, image);
 
                 if Self::compute_tile(&tile, image, *pixel) == key.amount {
-                    tokens.push(key.token);
+                    self.tokens.push(key.token);
+                    if new_line_ready {
+                        // self.analyse_line(i, );
+                        println!("{}", self.line_height(i, image));
+                    }
+                    if key.token == Token::LineBreak {
+                        new_line_ready = true;
+                    }
 
+                    // debug stuff
                     amount += 1;
-                    tile.save_tile(image, format!("tile{}.png", amount)).unwrap();
+                    // tile.save_tile(image, format!("tile{}.png", amount)).unwrap();
+                    println!("found {:?} ({})", key.token, amount)
                 }
 
                 // dont re tile the same area
@@ -359,8 +417,7 @@ impl Lexer {
             }
         }
 
-        println!("{:?}", tokens);
-        self.tokens = tokens;
+        println!("{:?}", self.tokens);
     }
 }
 
