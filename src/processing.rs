@@ -69,7 +69,7 @@ struct KeyData {
 impl KeyData {
     fn new() -> Self {
         Self {
-            token: Token::Zero,
+            token: Token::LineBreak,
             colour: Rgb([0, 0, 0]),
             left_width: 0,
             right_width: 0,
@@ -320,9 +320,32 @@ impl Lexer {
     }
 
     // returns the first key from a 1d index
-    fn consume_first(&self, begin: usize, image: &image::DynamicImage) -> KeyData {
+    fn consume_first(&self, begin: usize, image: &image::DynamicImage) -> &KeyData {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+        for i in begin..image.width() as usize*image.height() as usize {
+            if pixels[i] == self.key.background {
+                continue;
+            }
 
+            let keys = self.key.data_from_colour(pixels[i]);
+            for key in keys {
+                let tile = Tile::from_1d(
+                    i.max(key.left_width as usize) - key.left_width as usize,
+                    (key.left_width+key.right_width) as u32,
+                    key.height as u32,
+                    image
+                );
+
+                // if the tile matches a key
+                if Self::compute_tile(&tile, pixels[i], image) == key.amount {
+                    return self.key.data_from_key(key.token);
+                }
+            }
+        }
+
+        // if theres no first key
+        // very unlikely but could happen
+        &self.key.line_break
     }
 
     // return the height of the line
@@ -330,7 +353,7 @@ impl Lexer {
     // NOTE: does not take into account BreakLines
     fn line_height(&self, begin: usize, image: &image::DynamicImage) -> u8 {
         // unwrapping is fine since there is always atleast one element when this function is called
-        let first = self.key.data_from_key(*self.tokens.last().unwrap());
+        let first = self.consume_first(begin, image);
         let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut max_height: u8 = first.height;
@@ -374,7 +397,7 @@ impl Lexer {
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
 
-        for i in begin..size.height as usize * image.width() as usize + image.width() as usize {
+        'img: for i in begin..(begin/image.width() as usize + size.height as usize) * image.width() as usize + image.width() as usize {
             if pixels[i] == self.key.background /* || *pixel == self.key.ignore */ {
                 continue;
             }
@@ -403,12 +426,12 @@ impl Lexer {
 
                     // debug stuff
                     // tile.save_tile(image, format!("tile{}.png", i-begin)).unwrap();
-                    println!("found {:?}", key.token);
-                }
+                    // println!("found {:?}", key.token);
 
-                if key.token == Token::LineBreak {
-                    size.width = (i%image.width() as usize) as u32;
-                    break;
+                    if key.token == Token::LineBreak {
+                        size.width = (i%image.width() as usize) as u32;
+                        break 'img;
+                    }
                 }
 
                 // marks this area as already checked
@@ -417,7 +440,7 @@ impl Lexer {
         }
 
         // inserting a line break if there wasnt one there
-        // unwrapping is fine since there will always be atleast o
+        // unwrapping is fine since there will always be atleast 1 token
         if *line.last().unwrap() != Token::LineBreak {
             line.push(Token::LineBreak);
         }
@@ -428,17 +451,19 @@ impl Lexer {
     pub fn analyse(&mut self, image: &image::DynamicImage) {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
 
-        for mut i in 0..pixels.len() {
+        let mut i = 0;
+        while i < pixels.len() {
             if pixels[i] == self.key.background /* || *pixel == self.key.ignore */ {
+                i += 1;
                 continue;
             }
 
             let mut line = self.analyse_line(i, image);
             i += line.1.width as usize + line.1.height as usize *image.width() as usize;
             self.tokens.append(&mut line.0);
-        }
 
-        println!("{:?}", self.tokens);
+            i += 1;
+        }
     }
 }
 
@@ -452,6 +477,7 @@ pub fn deserialize(key: &String, source: &String) -> Result<(), image::ImageErro
 
     lex.analyse(&source_img);
     println!("Finished tokenizing");
+    println!("{:?}", lex.tokens);
 
     Ok(())
 }
