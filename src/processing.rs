@@ -3,6 +3,48 @@ use image::{GenericImage, Rgb, GenericImageView, Pixel};
 
 use std::collections::HashMap;
 
+// TODO: refactor Key parsing to use this
+#[derive(Debug)]
+struct Tile {
+    x: usize,
+    y: usize,
+    width: u32,
+    height: u32,
+}
+
+impl Tile {
+    fn from_1d(pos: usize, width: u32, height: u32, image: &image::DynamicImage) -> Self {
+        Self {
+            x: pos%(image.width() as usize),
+            y: pos/(image.width() as usize),
+            width,
+            height
+        }
+    }
+
+    fn overlapping(a: &Tile, b: &Tile) -> bool {
+        (a.x + a.width as usize >= b.x && b.x + b.width as usize >= a.x) &&
+            (a.y + a.height as usize >= b.y && b.y + b.height as usize >= a.y)
+    }
+
+    fn save_tile(&self, source: &image::DynamicImage, name: String) -> Result<(), image::ImageError>{
+        let mut img = image::RgbImage::new(self.width as u32, self.height as u32);
+
+        for y in 0..self.height as u32 {
+            for x in 0..self.width as u32 {
+                if (x < img.width() && y < img.height()) &&
+                    (self.x as u32 + x < source.width() && self.y as u32 + y < source.height()) {
+                    img.put_pixel(x as u32, y as u32,
+                                  source.get_pixel(self.x as u32 + x, self.y as u32 + y).to_rgb());
+                }
+            }
+        }
+
+        img.save(name)?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Token {
     Zero,
@@ -242,48 +284,6 @@ impl Key {
     }
 }
 
-// TODO: refactor Key parsing to use this
-#[derive(Debug)]
-struct Tile {
-    x: usize,
-    y: usize,
-    width: u8,
-    height: u8,
-}
-
-impl Tile {
-    fn from_1d(pos: usize, width: u8, height: u8, image: &image::DynamicImage) -> Self {
-        Self {
-            x: pos%(image.width() as usize),
-            y: pos/(image.width() as usize),
-            width,
-            height
-        }
-    }
-
-    fn overlapping(a: &Tile, b: &Tile) -> bool {
-        (a.x + a.width as usize >= b.x && b.x + b.width as usize >= a.x) &&
-            (a.y + a.height as usize >= b.y && b.y + b.height as usize >= a.y)
-    }
-
-    fn save_tile(&self, source: &image::DynamicImage, name: String) -> Result<(), image::ImageError>{
-        let mut img = image::RgbImage::new(self.width as u32, self.height as u32);
-
-        for y in 0..self.height as u32 {
-            for x in 0..self.width as u32 {
-                if (x < img.width() && y < img.height()) &&
-                    (self.x as u32 + x < source.width() && self.y as u32 + y < source.height()) {
-                    img.put_pixel(x as u32, y as u32,
-                                  source.get_pixel(self.x as u32 + x, self.y as u32 + y).to_rgb());
-                }
-            }
-        }
-
-        img.save(name)?;
-        Ok(())
-    }
-}
-
 struct Lexer {
     key: Key,
     tokens: Vec<Token>
@@ -298,7 +298,7 @@ impl Lexer {
     }
 
     // returns the amount of same coloured pixels in a tile
-    pub fn compute_tile(tile: &Tile, image: &image::DynamicImage, colour: Rgb<u8>) -> u32 {
+    pub fn compute_tile(tile: &Tile, colour: Rgb<u8>, image: &image::DynamicImage) -> u32 {
         // TODO: to stop computing this everywhere maybe make a getter for it or something
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut amount = 0;
@@ -319,25 +319,32 @@ impl Lexer {
         amount
     }
 
+    // returns the first key from a 1d index
+    fn consume_first(&self, begin: usize, image: &image::DynamicImage) -> KeyData {
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+
+    }
+
     // return the height of the line
     // its just the tallest key that intersects a ray from the first keys middle row
+    // NOTE: does not take into account BreakLines
     fn line_height(&self, begin: usize, image: &image::DynamicImage) -> u8 {
-        // TODO: middle row instead of top row
-
         // unwrapping is fine since there is always atleast one element when this function is called
         let first = self.key.data_from_key(*self.tokens.last().unwrap());
         let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut max_height: u8 = first.height;
 
-        for i in
-            (begin + first.right_width as usize)%image.width() as usize ..
-                image.width() as usize {
+        // y index of middle row of key
+        // beginning y + half key height
+        let middle_row = (begin as u32/image.width() + (first.height/2) as u32)  * image.width();
+
+        for i in begin%image.width() as usize..image.width() as usize {
             // TODO: see if we should check if the key exists instead of just relying on one pixel
             //       pros: more accurate line height + possibly faster tokenization
             //       cons: slower + more accurate tokenization
 
-            let colour = pixels[i+(begin/image.width() as usize * image.width() as usize)];
+            let colour = pixels[i + middle_row as usize];
             if colour == self.key.background {
                 continue
             }
@@ -360,40 +367,20 @@ impl Lexer {
     }
 
     // tokenizes a line of keys
-    // returns the 1d length of the line in pixels so the caller can skip it once analysed
-    fn analyse_line(&self, begin: usize, image: &image::DynamicImage) -> usize {
-        for i in begin..self.line_height(begin, image) as usize * image.width() as usize {
-
-        }
-
-        1
-    }
-
-    // TODO: read left to right not top to bottom
-    pub fn analyse(&mut self, image: &image::DynamicImage) {
-        let mut amount: u32 = 0; // amount of tokens
-
+    // returns the tokens and size of line
+    fn analyse_line(&self, begin: usize, image: &image::DynamicImage) -> (Vec<Token>, Tile) {
+        let mut line: Vec<Token> = Vec::new();                                      // token buffer
+        let mut size = Tile::from_1d(begin, 0, self.line_height(begin, image) as u32, image);  // size of line
+        let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
-        let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();    // colours to ignore at any given point. used to not re tile keys
-        let mut new_line_ready = true;
 
-        for (i, pixel) in pixels.iter().enumerate() {
-            // TODO: implement lines
-            //       the line width is infinite until hits a line break
-            //       the line height is defined by the tallest key in the first keys middle row
-
-            // // if we hit the edge of the image. insert a line break
-            // if i%image.width() as usize == image.width() as usize - 1 {
-            //     tokens.push(Token::LineBreak);
-            //     continue;
-            // }
-
-            if *pixel == self.key.background /* || *pixel == self.key.ignore */ {
+        for i in begin..size.height as usize * image.width() as usize + image.width() as usize {
+            if pixels[i] == self.key.background /* || *pixel == self.key.ignore */ {
                 continue;
             }
 
             // checking if where in an area thats already been checked
-            if let Some(tile) = ignore.get(pixel) {
+            if let Some(tile) = ignore.get(&pixels[i]) {
                 // TODO: fix ignoring
                 if Tile::overlapping(&Tile::from_1d(i, 1, 1, image), tile) {
                     continue;
@@ -401,29 +388,54 @@ impl Lexer {
             }
 
             // checking if the amount of pixels in the key is the same as in this tile. aiming to match lexical keys to abitrary symbols
-            let keys = self.key.data_from_colour(*pixel);
+            let keys = self.key.data_from_colour(pixels[i]);
             for key in keys {
-                let tile = Tile::from_1d(i.max(key.left_width as usize) - key.left_width as usize, key.left_width+key.right_width, key.height, image);
+                let tile = Tile::from_1d(
+                    i.max(key.left_width as usize) - key.left_width as usize,
+                    (key.left_width+key.right_width) as u32,
+                    key.height as u32,
+                    image
+                );
 
-                if Self::compute_tile(&tile, image, *pixel) == key.amount {
-                    self.tokens.push(key.token);
-                    if new_line_ready {
-                        self.analyse_line(i, image);
-                        new_line_ready = false;
-                    }
-                    if key.token == Token::LineBreak {
-                        new_line_ready = true;
-                    }
+                // if the tile matches a key
+                if Self::compute_tile(&tile, pixels[i], image) == key.amount {
+                    line.push(key.token);
 
                     // debug stuff
-                    amount += 1;
-                    // tile.save_tile(image, format!("tile{}.png", amount)).unwrap();
-                    println!("found {:?} ({})", key.token, amount);
+                    // tile.save_tile(image, format!("tile{}.png", i-begin)).unwrap();
+                    println!("found {:?}", key.token);
                 }
 
-                // dont re tile the same area
-                ignore.insert(*pixel, tile);
+                if key.token == Token::LineBreak {
+                    size.width = (i%image.width() as usize) as u32;
+                    break;
+                }
+
+                // marks this area as already checked
+                ignore.insert(pixels[i], tile);
             }
+        }
+
+        // inserting a line break if there wasnt one there
+        // unwrapping is fine since there will always be atleast o
+        if *line.last().unwrap() != Token::LineBreak {
+            line.push(Token::LineBreak);
+        }
+
+        (line, size)
+    }
+
+    pub fn analyse(&mut self, image: &image::DynamicImage) {
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+
+        for mut i in 0..pixels.len() {
+            if pixels[i] == self.key.background /* || *pixel == self.key.ignore */ {
+                continue;
+            }
+
+            let mut line = self.analyse_line(i, image);
+            i += line.1.width as usize + line.1.height as usize *image.width() as usize;
+            self.tokens.append(&mut line.0);
         }
 
         println!("{:?}", self.tokens);
