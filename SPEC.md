@@ -1,3 +1,6 @@
+keep in mind this is subject to change
+
+
 # Plans
 heres kinda what i want to achieve:
 - use image files as the source code (involving image elements such as colour, shapes, etc. with user defined meaning to all of these elements maybe in an image key file of some kind)
@@ -13,5 +16,12 @@ The key file contains the symbols and colours of each token
 an example key image file can be found [here](examples/key.png)
 
 the key file is a 256x256 image read in tiles (64 pixel chunks) from left to right top to bottom in a constant order which is the [key structure](https://github.com/aymey/cram/blob/main/src/processing.rs#L7)
+
+a few quirks of key files currently:
+    - the grid colour is found from the very first pixel (top left corner) of the image
+        - this grid colour is ignore in the key file
+    - non rectangular objects are tokenized from a rectangular tile (like a bounding box in video games)
+        - if the amount of pixels in the tokens tile matches the amount of pixels in the keys tile, then we deem it a match
+        - due to this, a keys pixels can be arranged in any way withing the bounding box
 
 ## source
