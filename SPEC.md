@@ -1,6 +1,7 @@
 keep in mind this is subject to change
 
 # Plans
+
 heres kinda what i want to achieve:
 - use image files as the source code (involving image elements such as colour, shapes, etc. with user defined meaning to all of these elements maybe in an image key file of some kind)
 - be able to transpile to c and back
@@ -8,9 +9,11 @@ heres kinda what i want to achieve:
 - also an interpreter and some kind of an intermediate language
 
 # Files
+
 files are converted into RGB 8 bit colour depth & alpha is ignored
 
 ## key
+
 Crams project specific syntax is defined by the user in a keys image file   \
 The key file contains the symbols and colours of each token                 \
 an example key image file can be found [here](examples/key.png)
@@ -27,12 +30,24 @@ a few quirks of key files currently:
     - every row gets more and more offset from the top
     - the final row is not parsed at all
 
+### order
+
+The order of the keys, wrapping left to right, is as follows:
+1. Zero
+2. Increment
+3. Decrement
+4. Access
+5. Repeat
+6. Quote
+7. Line Break
+
 ## source
+
 The source code of Cram projects is found within image files made up of keys (see above)    \
 The source files can be of any dimensions and are read from left to right in lines
 
 line:
 - each line is seperated by a line break or the x border of the image (where a linebreak is automatically inserted in lexing)
-- a line has a tile with an x, y origin (top left) and a width and a height
-    - a lines width is defined by the distance from the origin and the closest (x wise) line break
-    - a lines height is defined by the greatest height of the keys that intersect a ray from the middle row of the first key in a line (currently, the ray does not check if the key exists, it goes off pixel colours only)
+- a line has a tile with an x, y origin (top left) and a width and height
+    - a lines width is defined by the distance from the origin to the closest line break
+    - a lines height is defined by the greatest height of the keys that intersect a ray from the middle row of the first key to the lines width (currently, the ray does not check if the key exists, it goes off pixel colours only)
