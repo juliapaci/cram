@@ -395,8 +395,6 @@ impl Lexer {
             //       pros: more accurate line height + possibly faster tokenization
             //       cons: slower + more accurate tokenization
 
-            // println!("{}", middle_row);
-            // println!("{}, {}", begin%image.width() as usize, begin/image.width() as usize);
             let colour = pixels[i + middle_row as usize];
             if colour == self.key.background {
                 continue
@@ -433,8 +431,13 @@ impl Lexer {
             return (Vec::new(), size);
         }
 
-        'img: for x in size.x as usize..size.width as usize {
-            for y in size.y as usize.. size.y as usize + size.height as usize {
+        // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be)
+        'img: for x in size.x ..size.width as usize {
+            for y in (size.y.max(size.height as usize) - size.height as usize) .. size.y + size.height as usize * 2 {
+                if x+y*image.width() as usize > image.width() as usize * image.height() as usize {
+                    continue;
+                }
+
                 if pixels[y][x] == self.key.background /* || *pixel == self.key.ignore */ {
                     continue;
                 }
@@ -456,7 +459,6 @@ impl Lexer {
                         width: (key.width_left+key.width_right) as u32,
                         height: (key.height_up + key.height_down) as u32,
                     };
-                    // println!("for possible key of: {:?}\n\t{}, {}\n", key.token, tile.x, tile.y);
 
                     // if the tile matches a key
                     if Self::compute_tile(&tile, pixels[y][x], image) == key.amount {
