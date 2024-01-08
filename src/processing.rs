@@ -433,7 +433,7 @@ impl Lexer {
 
         // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be)
         'img: for x in size.x ..size.width as usize {
-            for y in (size.y.max(size.height as usize) - size.height as usize) .. size.y + size.height as usize * 2 {
+            for y in size.y.max(size.height as usize) - size.height as usize .. size.y + size.height as usize * 2 {
                 if x+y*image.width() as usize > image.width() as usize * image.height() as usize {
                     continue;
                 }
