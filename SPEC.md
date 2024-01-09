@@ -19,6 +19,9 @@ The key file contains the symbols and colours of each token                 \
 an example key image file can be found [here](examples/key.png)
 
 the key file is a 256x256 image read in tiles (64 pixel chunks) from left to right top to bottom in a constant order which is the [key structure](https://github.com/aymey/cram/blob/main/src/processing.rs#L7)
+the background colour
+
+the background colour of the image, which is ignored (both in source and key), is defined by the most common colour in the key
 
 a few quirks of key files currently:
 - the grid colour is found from the very first pixel (top left corner) of the image
@@ -29,6 +32,9 @@ a few quirks of key files currently:
 - key tiles are parsed imperfectly
     - every row gets more and more offset from the top
     - the final row is not parsed at all
+- a keys colour is denoted by the first non ignored (not background or grid) colour in the tile
+    - the KeyData of the key is not effected because something like the amount takes into account all non ignored pixels
+    - the lexing is effected by this because it counts the amount of specific coloured pixels in a tile, therefore no match will be found for multi coloured keys
 
 ### order
 
