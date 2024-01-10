@@ -21,16 +21,17 @@ an example key image file can be found [here](examples/key.png)
 the key file is a 256x256 image read in tiles (64 pixel chunks) from left to right top to bottom in a constant order which is the [key structure](https://github.com/aymey/cram/blob/main/src/processing.rs#L7)
 the background colour
 
-the background colour of the image, which is ignored (both in source and key), is defined by the most common colour in the key
+the background colour of the image, which is ignored (both in source and key files), is defined by the most common colour in the key file as a whole (includes what would usually be ignored colours such as grid colour)
 
 a few quirks of key files currently:
 - the grid colour is found from the very first pixel (top left corner) of the image
     - this grid colour is ignore in the key file
 - non rectangular objects are tokenized from a rectangular tile (like a bounding box in video games)
     - if the amount of pixels in the tokens tile matches the amount of pixels in the keys tile, then we deem it a match
-    - due to this, a keys pixels can be arranged in any way withing the bounding box
+    - a keys pixels can be arranged in any way withing the bounding box
+    - multiple keys with the same amount of same coloured pixels withh conflict
 - key tiles are parsed imperfectly
-    - every row gets more and more offset from the top
+    - every row gets increasingly offset from the top
     - the final row is not parsed at all
 - a keys colour is denoted by the first non ignored (not background or grid) colour in the tile
     - the KeyData of the key is not effected because something like the amount takes into account all non ignored pixels
