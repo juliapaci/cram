@@ -4,8 +4,9 @@ use image::{GenericImage, Rgb, GenericImageView, Pixel};
 use std::collections::HashMap;
 
 // TODO: refactor Key parsing to use this
-#[derive(Debug)]
+#[derive(Default, Debug)]
 struct Tile {
+    // Tile assumes a top left origin
     x: usize,
     y: usize,
     width: u32,
@@ -13,6 +14,7 @@ struct Tile {
 }
 
 impl Tile {
+    // changes 1d to 2d pos in a Tile
     fn from_1d(pos: usize, width: u32, height: u32, image: &image::DynamicImage) -> Self {
         Self {
             x: pos%(image.width() as usize),
@@ -22,11 +24,23 @@ impl Tile {
         }
     }
 
+    // check if two tiles are overlapping
     fn overlapping(a: &Tile, b: &Tile) -> bool {
         (a.x + a.width as usize >= b.x && b.x + b.width as usize >= a.x) &&
             (a.y + a.height as usize >= b.y && b.y + b.height as usize >= a.y)
     }
 
+    // loops through the tile top to bottom
+    // TODO: make a generic tile iteration for use in the lexer
+    fn iterate(&self, f: &dyn Fn(usize, usize)) {
+        for x in self.x .. self.x + self.width as usize {
+            for y in self.y .. self.y + self.height as usize {
+                f(x, y)
+            }
+        }
+    }
+
+    // will save a pixels in a tile as an image
     fn save_tile(&self, source: &image::DynamicImage, name: String) -> Result<(), image::ImageError>{
         let mut img = image::RgbImage::new(self.width as u32, self.height as u32);
 
@@ -58,14 +72,14 @@ enum Token {
 
 // data for the tokens
 struct KeyData {
-    token: Token,
-    colour: Rgb<u8>,
+    token: Token,       // token that the key represents
+    colour: Rgb<u8>,    // colour of key
 
     width_left: u8,     // width of key from the first (top left) pixel leftwards
     width_right: u8,    // width of key from the first (top left) pixel rightwards
     height_up: u8,      // height of key from the first (leftmost) pixel upwards
     height_down: u8,    // height of key from the first (leftmost) pixel downwards
-    amount: u32
+    amount: u32         // amount of non ignored (e.g. background, grid) pixels in key
 }
 
 impl KeyData {
@@ -140,9 +154,24 @@ impl Key {
             [unsafe {std::mem::transmute::<Token, u8>(key)} as usize]
     }
 
-    // TODO: make function that gives the left offset (relative to the width of the key) of the first pixel in the tile
-    //       This will optimise searching tiles as it would reduce the amount of pixels that need to be search x2
-    //       This will also fix a bug where multiple keys would be in one keys tile for the lexer
+    // gets the largest height and width from all of the keys (likely not from the same key)
+    fn get_largest(&self) -> (u8, u8) {
+        let sizes: Vec<(u8, u8)> = self.as_array()
+            .iter()
+            .map(|&k| (k.width_left + k.width_right, k.height_up + k.height_down))
+            .collect();
+
+        // unwrap is fine since we hardcore the array
+
+        // width
+        (sizes.iter()
+         .map(|s| s.0)
+         .max().unwrap(),
+        // height
+         sizes.iter()
+         .map(|s| s.1)
+         .max().unwrap())
+    }
 
     // gets the background colour
     fn identify_background(&mut self, image: &image::DynamicImage) {
@@ -273,6 +302,7 @@ impl Key {
             width_left: (first_pixel.0 as i16 - leftmost_pixel.0 as i16).abs() as u8,
             width_right: (width - (first_pixel.0 as i16 - leftmost_pixel.0 as i16)).abs() as u8,
 
+            // TODO: this ignores hollow in height which causes wrong height if theres gaps in the middle (y wise) of keys
             height_up: (leftmost_pixel.1 as i16 - first_pixel.1 as i16).abs() as u8,
             height_down: key.len() as u8 - (leftmost_pixel.1 as i16 - first_pixel.1 as i16).abs() as u8,
 
@@ -422,6 +452,7 @@ impl Lexer {
     fn analyse_line(&self, begin: usize, image: &image::DynamicImage) -> (Vec<Token>, Tile) {
         let mut line: Vec<Token> = Vec::new();                                      // token buffer
         let mut size = Tile::from_1d(begin, image.width(), self.line_height(begin, image) as u32, image);  // size of line
+        size.width -= size.x as u32;
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
 
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
@@ -431,8 +462,8 @@ impl Lexer {
             return (Vec::new(), size);
         }
 
-        // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be)
-        'img: for x in size.x ..size.width as usize {
+        // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
+        'img: for x in size.x .. size.x + size.width as usize {
             for y in size.y.max(size.height as usize) - size.height as usize .. size.y + size.height as usize * 2 {
                 if x+y*image.width() as usize > image.width() as usize * image.height() as usize {
                     continue;
@@ -469,7 +500,7 @@ impl Lexer {
                         // println!("found {:?}", key.token);
 
                         if key.token == Token::LineBreak {
-                            size.width = x as u32;
+                            size.width = (x - size.x) as u32 + key.width_right as u32;
                             break 'img;
                         }
                     }
@@ -482,9 +513,11 @@ impl Lexer {
 
         // inserting a line break if there wasnt one there
         // unwrapping is fine since there will always be atleast 1 token
+        // TODO: ignore consecutive LineBreaks
         if *line.last().unwrap() != Token::LineBreak {
             line.push(Token::LineBreak);
         }
+
 
         (line, size)
     }
@@ -502,25 +535,48 @@ impl Lexer {
             })
             .collect();
 
-        let mut x = 0;
-        while x < image.width() as usize {
-            let mut y = 0;
-            while y < image.height() as usize {
-                if pixels[y][x] == self.key.background /* || *pixel == self.key.ignore */ {
-                    y += 1;
-                    continue;
+        let mut found = false;
+        let possible_line_size = self.key.get_largest();
+        let mut frame = Tile {
+            x: 0,
+            y: 0,
+            width: possible_line_size.0 as u32,
+            height: possible_line_size.1 as u32
+        };
+
+        while frame.y < image.height() as usize {    // how many frames can fit on y
+            frame.x = 0;
+            while frame.x < image.width() as usize {  // how many frames can fit on x
+                let init_y = frame.y;
+                // check for anything in side the frame
+                'frame: while frame.x < (frame.x + frame.width as usize).min(image.width() as usize) {
+                    frame.y = init_y;
+                    while frame.y < (frame.y + frame.height as usize).min(image.height() as usize) {
+                        if pixels[frame.y][frame.x] == self.key.background /* || *pixel == self.key.ignore */ {
+                            frame.y += 1;
+                            continue;
+                        }
+
+                        found = true;
+                        break 'frame;
+                    }
+                    frame.x += 1;
                 }
 
-                let mut line = self.analyse_line(y*image.width() as usize + x, image);
-                x = line.1.width as usize - 1;
-                y += line.1.height as usize;
+                if found {
+                    found = false;
+                    println!("found: {}, {}", frame.x, frame.y);
+                    let mut line = self.analyse_line(frame.y*image.width() as usize + frame.x, image);
+                    frame.x += line.1.width as usize - 1;
+                    frame.y += line.1.height as usize;
+                    println!("new: {}, {}", frame.x, frame.y);
 
-                self.tokens.append(&mut line.0);
+                    self.tokens.append(&mut line.0);
+                }
 
-                y += 1;
+                frame.x += frame.width as usize;
             }
-
-            x += 1;
+            frame.y += frame.height as usize;
         }
     }
 }
