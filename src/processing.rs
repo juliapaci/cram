@@ -540,6 +540,7 @@ impl Lexer {
             height: possible_line_size.1 as u32
         };
 
+        // basically a custom windows() over the image in "frames"
         while frame.y < image.height() as usize {    // how many frames can fit on y
             frame.x = 0;
             while frame.x < image.width() as usize {  // how many frames can fit on x
