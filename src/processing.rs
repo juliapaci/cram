@@ -463,11 +463,8 @@ impl Lexer {
         }
 
         // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
-        'img: for x in size.x .. size.x + size.width as usize {
-            for y in size.y.max(size.height as usize) - size.height as usize .. size.y + size.height as usize * 2 {
-                if x+y*image.width() as usize > image.width() as usize * image.height() as usize {
-                    continue;
-                }
+        'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
+            for y in size.y.max(size.height as usize) - size.height as usize .. (size.y + size.height as usize).min(image.height() as usize) {
 
                 if pixels[y][x] == self.key.background /* || *pixel == self.key.ignore */ {
                     continue;
@@ -535,7 +532,6 @@ impl Lexer {
             })
             .collect();
 
-        let mut found = false;
         let possible_line_size = self.key.get_largest();
         let mut frame = Tile {
             x: 0,
@@ -547,33 +543,32 @@ impl Lexer {
         while frame.y < image.height() as usize {    // how many frames can fit on y
             frame.x = 0;
             while frame.x < image.width() as usize {  // how many frames can fit on x
-                let init_y = frame.y;
                 // check for anything in side the frame
-                'frame: while frame.x < (frame.x + frame.width as usize).min(image.width() as usize) {
-                    frame.y = init_y;
-                    while frame.y < (frame.y + frame.height as usize).min(image.height() as usize) {
-                        if pixels[frame.y][frame.x] == self.key.background /* || *pixel == self.key.ignore */ {
-                            frame.y += 1;
+                'frame: for x in 0..frame.width as usize {
+                    if x + frame.x >= image.width() as usize {
+                        break;
+                    }
+
+                    for y in 0..frame.height as usize {
+                        if y + frame.y >= image.height() as usize {
+                            break;
+                        }
+
+                        if pixels[y + frame.y][x + frame.x] == self.key.background /* || *pixel == self.key.ignore */ {
                             continue;
                         }
 
-                        found = true;
+                        println!("found: {}, {}", x + frame.x, y + frame.y);
+                        let mut line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), image);
+                        frame.x += line.1.width as usize - 1;
+                        frame.y += line.1.height as usize;
+                        println!("new: {}, {}", frame.x, frame.y);
+
+                        self.tokens.append(&mut line.0);
+
                         break 'frame;
                     }
-                    frame.x += 1;
                 }
-
-                if found {
-                    found = false;
-                    println!("found: {}, {}", frame.x, frame.y);
-                    let mut line = self.analyse_line(frame.y*image.width() as usize + frame.x, image);
-                    frame.x += line.1.width as usize - 1;
-                    frame.y += line.1.height as usize;
-                    println!("new: {}, {}", frame.x, frame.y);
-
-                    self.tokens.append(&mut line.0);
-                }
-
                 frame.x += frame.width as usize;
             }
             frame.y += frame.height as usize;
