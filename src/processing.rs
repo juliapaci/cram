@@ -447,6 +447,9 @@ impl Lexer {
         max_height
     }
 
+    // TODO: fix crash related to null safety on one line with 2 explicit line breaks
+    // TODO: fix crash when theres oly non ignored pixels that dont make up a key
+
     // tokenizes a line of keys
     // returns the tokens and size of line
     fn analyse_line(&self, begin: usize, image: &image::DynamicImage) -> (Vec<Token>, Tile) {
@@ -509,10 +512,11 @@ impl Lexer {
         }
 
         // inserting a line break if there wasnt one there
-        // unwrapping is fine since there will always be atleast 1 token
         // TODO: ignore consecutive LineBreaks
-        if *line.last().unwrap() != Token::LineBreak {
-            line.push(Token::LineBreak);
+        if let Some(&token) = line.last() {
+            if token != Token::LineBreak {
+                line.push(Token::LineBreak);
+            }
         }
 
 
@@ -559,11 +563,9 @@ impl Lexer {
                             continue;
                         }
 
-                        println!("found: {}, {}", x + frame.x, y + frame.y);
                         let mut line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), image);
                         frame.x += line.1.width as usize - 1;
                         frame.y += line.1.height as usize;
-                        println!("new: {}, {}", frame.x, frame.y);
 
                         self.tokens.append(&mut line.0);
 
@@ -587,7 +589,7 @@ pub fn deserialize(key: &String, source: &String) -> Result<(), image::ImageErro
 
     lex.analyse(&source_img);
     println!("Finished tokenizing");
-    println!("{:?}", lex.tokens);
+    println!("{:?} ({})", lex.tokens, lex.tokens.len());
 
     Ok(())
 }
