@@ -4,7 +4,7 @@ use image::{GenericImage, Rgb, GenericImageView, Pixel};
 use std::collections::HashMap;
 
 // TODO: refactor Key parsing to use this
-#[derive(Default, Debug)]
+#[derive(Default, PartialEq, Debug)]
 struct Tile {
     // Tile assumes a top left origin
     x: usize,
@@ -71,10 +71,10 @@ enum Token {
 }
 
 // data for the tokens
+#[derive(Debug, PartialEq)]
 struct KeyData {
     token: Token,       // token that the key represents
     colour: Rgb<u8>,    // colour of key
-
     width_left: u8,     // width of key from the first (top left) pixel leftwards
     width_right: u8,    // width of key from the first (top left) pixel rightwards
     height_up: u8,      // height of key from the first (leftmost) pixel upwards
@@ -208,6 +208,7 @@ impl Key {
     }
 
     // reads the key but doesnt remove parts within it. Useful for reading hollow keys
+    // will panic if there is nothing occupying the tile (or exclusively background and grid pixels)
     fn outline_key(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
         // the trimmed key
         let mut key: Vec<Vec<Rgb<u8>>> = Vec::new();
@@ -247,7 +248,7 @@ impl Key {
         // top left pixels' coords
         let mut first_pixel: (usize, usize) = Default::default();
 
-        first_pixel.0 = tile                // x
+        first_pixel.0 = tile    // x
             .iter()
             .filter(|row| {
                 row
@@ -258,7 +259,7 @@ impl Key {
             .position(|&p| p != self.background && p != self.grid)
             .unwrap();
 
-        first_pixel.1 = *tile // y
+        first_pixel.1 = *tile   // y
             .iter()
             .enumerate()
             .map(|(y, row)| {
@@ -311,7 +312,6 @@ impl Key {
     }
 
     // returns the KeyData of the key in a tile
-    // will panic if there is nothing occupying the tile (or exclusively background and grid pixels)
     fn identify_key_data(&self, tile: &[[Rgb<u8>; 64]; 64], token: u8) -> KeyData {
         // unsafe is fine since we are hardcoding the possible values of teken
         self.outline_key(tile, unsafe {std::mem::transmute(token)})
@@ -447,9 +447,6 @@ impl Lexer {
         max_height
     }
 
-    // TODO: fix crash related to null safety on one line with 2 explicit line breaks
-    // TODO: fix crash when theres oly non ignored pixels that dont make up a key
-
     // tokenizes a line of keys
     // returns the tokens and size of line
     fn analyse_line(&self, begin: usize, image: &image::DynamicImage) -> (Vec<Token>, Tile) {
@@ -475,7 +472,6 @@ impl Lexer {
 
                 // checking if where in an area thats already been checked
                 if let Some(tile) = ignore.get(&pixels[y][x]) {
-                    // TODO: fix ignoring
                     if Tile::overlapping(&Tile {x, y, width: 1, height: 1}, tile) {
                         continue;
                     }
@@ -512,7 +508,7 @@ impl Lexer {
         }
 
         // inserting a line break if there wasnt one there
-        // TODO: ignore consecutive LineBreaks
+        // TODO: ignore consecutive LineBreaks better
         if let Some(&token) = line.last() {
             if token != Token::LineBreak {
                 line.push(Token::LineBreak);
@@ -594,4 +590,95 @@ pub fn deserialize(key: &String, source: &String) -> Result<(), image::ImageErro
     Ok(())
 }
 
-// TODO: tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Tile tests
+
+    #[test]
+    fn test_tile_from_1d() {
+        let img = ImageReader::open("test/100x100.png").unwrap().decode().unwrap();
+
+        let test = Tile::from_1d(123, 12, 3, &img);
+        let expected = Tile {
+                x: 23,
+                y: 1,
+                width: 12,
+                height: 3
+            };
+
+        assert_eq!(test, expected);
+    }
+
+    #[test]
+    fn test_tile_overlapping() {
+        let test = Tile {
+            x: 19,
+            y: 38,
+            width: 98,
+            height: 21
+        };
+        let expected_false = [
+            Tile { x: 0, y: 0, width: 0, height: 0},
+            Tile { x: 10, y: 62, width: 8, height: 30}
+        ];
+        let expected_true = [
+            Tile { x: 0, y: 1, width: 19, height: 37 },
+            Tile { x: 1, y: 0, width: 18, height: 38 },
+            Tile { x: 19, y: 3, width: 0, height: 35 },
+            Tile { x: 17, y: 38, width: 2, height: 0 },
+            Tile { x: 0, y: 0, width: 100, height: 100 }
+        ];
+
+        for expected in expected_false {
+            assert!(!Tile::overlapping(&test, &expected));
+        }
+
+        for expected in expected_true {
+            assert!(Tile::overlapping(&test, &expected));
+        }
+    }
+
+    // Key tests
+    // TODO: maybe use a special test key instead
+    // TODO: cant test most key functions rn since reading keys depend on a linear execution functions which wouldnt be thread safe
+    #[test]
+    fn test_key_data_from_colour() {
+        let key_file = ImageReader::open("examples/key.png").unwrap().decode().unwrap();
+        let test_key = Key::new();
+
+        // using Increment as an example
+        // TODO: maybe test all keys?
+        let test = KeyData {
+            token: Token::Increment,
+            colour: Rgb([153, 229, 80]),
+            width_left: 13,
+            width_right: 20,
+            height_up: 12,
+            height_down: 20,
+            amount: 406
+        };
+        let expected = test_key.data_from_colour(Rgb([153, 229, 80]));
+        println!("{:?}", expected);
+
+        assert_eq!(test, *expected[0]);
+    }
+
+    #[test]
+    fn test_key_identify_background() {
+        let key_file = ImageReader::open("examples/key.png").unwrap().decode().unwrap();
+
+        let mut test = Key::new();
+        test.identify_background(&key_file);
+        let expected = Rgb([34, 32, 52]);
+
+        assert_eq!(test.background, expected);
+    }
+
+    // #[test]
+    // fn
+
+
+    // Lexer tests
+}
