@@ -10,7 +10,8 @@ heres kinda what i want to achieve:
 
 # Files
 
-files are converted into RGB 8 bit colour depth & alpha is ignored
+files are converted into RGB 8 bit colour depth & alpha is ignored. \
+since alpha is ignored, transparent and translucent images can function as if they were opaque so invisible programs could be a fun party trick
 
 ## key
 
