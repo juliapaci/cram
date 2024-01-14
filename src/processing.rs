@@ -327,9 +327,9 @@ impl Key {
         //         .save_tile(image, format!("tile{}.png", i)).unwrap();
         // }
 
-        // TODO: find better way of finding key grid colour like detect rangles or something
+        // TODO: find better way of finding key grid colour like detect rectangles or something
         self.grid = tiles[0][0][0];
-        // TODO: better wat of doing all these actions like macro or something?
+        // TODO: better way of doing all these actions like macro or something?
         self.zero = self.identify_key_data(&tiles[0], 0);
         self.increment = self.identify_key_data(&tiles[1], 1);
         self.decrement = self.identify_key_data(&tiles[2], 2);
@@ -590,12 +590,12 @@ pub fn deserialize(key: &String, source: &String) -> Result<(), image::ImageErro
     Ok(())
 }
 
+// TODO: maybe use a special test key instead of official default key so we can test for weirder shapes
 #[cfg(test)]
 mod tests {
     use super::*;
 
     // Tile tests
-
     #[test]
     fn test_tile_from_1d() {
         let img = ImageReader::open("test/100x100.png").unwrap().decode().unwrap();
@@ -641,27 +641,55 @@ mod tests {
     }
 
     // Key tests
-    // TODO: maybe use a special test key instead
-    // TODO: cant test most key functions rn since reading keys depend on a linear execution functions which wouldnt be thread safe
+    struct KeySetup {
+        img: image::DynamicImage,
+        key: Key
+    }
+
+    impl KeySetup {
+        fn new() -> Self {
+            let mut setup = Self {
+                img: ImageReader::open("examples/key.png").unwrap().decode().unwrap(),
+                key: Key::new()
+            };
+            setup.key.read_keys(&setup.img);
+
+            setup
+        }
+    }
+
     #[test]
     fn test_key_data_from_colour() {
-        let key_file = ImageReader::open("examples/key.png").unwrap().decode().unwrap();
-        let test_key = Key::new();
+        let key = KeySetup::new();
 
         // using Increment as an example
         // TODO: maybe test all keys?
-        let test = KeyData {
-            token: Token::Increment,
-            colour: Rgb([153, 229, 80]),
-            width_left: 13,
-            width_right: 20,
-            height_up: 12,
-            height_down: 20,
-            amount: 406
-        };
-        let expected = test_key.data_from_colour(Rgb([153, 229, 80]));
+        let test = key.key.data_from_colour(Rgb([153, 229, 80]));
+        let expected = &key.key.increment;
 
-        assert_eq!(test, *expected[0]);
+        assert_eq!(*test[0], *expected);
+    }
+
+    #[test]
+    fn test_key_data_from_key() {
+        let key = KeySetup::new();
+
+        // using Increment as an example
+        let test = key.key.data_from_key(Token::Increment);
+        let expected = &key.key.increment;
+
+        assert_eq!(*test, *expected);
+    }
+
+    #[test]
+    fn test_key_get_largest() {
+        let key = KeySetup::new();
+
+        let test = key.key.get_largest();
+        // largest size of keys is width of repeat and height of line break
+        let expected = (44, 46);
+
+        assert_eq!(test, expected);
     }
 
     #[test]
@@ -674,6 +702,8 @@ mod tests {
 
         assert_eq!(test.background, expected);
     }
+
+    // TODO: make tests for all the key functions that involve tiles (return or param)
 
     // Lexer tests
     // TODO: do more cases for each test
