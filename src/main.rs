@@ -1,6 +1,11 @@
+mod processing {
+    pub mod lexer;
+    pub mod parser;
+}
+
 use std::env;
 
-mod processing;
+use processing::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -9,5 +14,6 @@ fn main() {
         return;
     }
 
-    processing::deserialize(&args[1], &args[2]).unwrap()
+    let tokens = lexer::deserialize(&args[1], &args[2]).unwrap();
+    parser::parse(tokens.into()).unwrap();
 }

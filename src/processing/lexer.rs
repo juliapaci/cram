@@ -60,14 +60,15 @@ impl Tile {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Token {
+pub enum Token {
+    // keys
     Zero,
     Increment,
     Decrement,
     Access,
     Repeat,
     Quote,
-    LineBreak
+    LineBreak,
 }
 
 // data for the tokens
@@ -575,7 +576,7 @@ impl Lexer {
     }
 }
 
-pub fn deserialize(key: &String, source: &String) -> Result<(), image::ImageError>{
+pub fn deserialize(key: &String, source: &String) -> Result<Vec<Token>, image::ImageError>{
     let key_img = ImageReader::open(key)?.with_guessed_format()?.decode()?;
     let source_img = ImageReader::open(source)?.with_guessed_format()?.decode()?;
 
@@ -587,7 +588,7 @@ pub fn deserialize(key: &String, source: &String) -> Result<(), image::ImageErro
     println!("Finished tokenizing");
     println!("{:?} ({})", lex.tokens, lex.tokens.len());
 
-    Ok(())
+    Ok(lex.tokens)
 }
 
 // TODO: maybe use a special test key instead of official default key so we can test for weirder shapes

@@ -8,6 +8,12 @@ heres kinda what i want to achieve:
 - compile directly to either x86-64 or a custom instruction set
 - also an interpreter and some kind of an intermediate language
 
+# Language
+
+Cram aims to avoid font processing as a way to interpret image data \
+i.e. cram disallows reading characters by comparing bitmaps of fonts and tiles \
+because of this, Tokens do not contain a value.
+
 # Files
 
 files are converted into RGB 8 bit colour depth & alpha is ignored. \
@@ -15,7 +21,7 @@ since alpha is ignored, transparent and translucent images can function as if th
 
 ## key
 
-Crams project specific syntax is defined by the user in a keys image file   \
+Cram projects specific syntax is defined by the user in a keys image file   \
 The key file contains the symbols and colours of each token                 \
 an example key image file can be found [here](examples/key.png)
 
@@ -41,13 +47,13 @@ a few quirks of key files currently:
 ### order
 
 The order of the keys, wrapping left to right, is as follows:
-1. Zero
-2. Increment
-3. Decrement
-4. Access
-5. Repeat
-6. Quote
-7. Line Break
+1. Zero         -   The constant integer literal zero
+2. Increment    -   Increments an integer by 1
+3. Decrement    -   Decrements an integer by 1
+4. Access       -
+5. Repeat       -
+6. Quote        -   interprets an integer as ASCII "printable characters"
+7. Line Break   -   denotes the end of a line
 
 ## source
 
@@ -59,3 +65,5 @@ line:
 - a line has a tile with an x, y origin (top left) and a width and height
     - a lines width is defined by the distance from the origin to the closest line break
     - a lines height is defined by the greatest height of the keys that intersect a ray from the middle row of the first key to the lines width (currently, the ray does not check if the key exists, it goes off pixel colours only)
+
+# Grammar
