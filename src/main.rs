@@ -1,19 +1,34 @@
 mod processing {
     pub mod lexer;
     pub mod parser;
+    pub mod codegen;
 }
 
-use std::env;
-
 use processing::*;
+use std::env;
+use std::process::Command;
+use std::path::Path;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
-        println!("Input the key file and the source file as arguments");
+    if args.len() != 4 {
+        println!("Input the key file, source file, and output file paths as respective arguments");
         return;
     }
 
-    let tokens = lexer::deserialize(&args[1], &args[2]).unwrap();
-    parser::parse(tokens.into()).unwrap();
+    let tokens  = lexer::deserialize(&args[1], &args[2]).unwrap();
+    let program = parser::parse(tokens.into()).unwrap();
+    let out_name = format!("out/{}", Path::new(&args[3]).file_stem().unwrap().to_str().unwrap());
+    codegen::generate(&program, &format!("{}.s", out_name))
+        .expect("failed to asm write to file");
+
+    Command::new("nasm")
+        .args(["-felf64", &format!("{}.s", out_name)])
+        .output()
+        .expect("nasm failed");
+    Command::new("ld")
+        .arg(format!("{}.o", out_name))
+        .args(["-o", &args[3]])
+        .output()
+        .expect("ld failed");
 }

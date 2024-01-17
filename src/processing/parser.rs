@@ -1,9 +1,7 @@
-mod node {
-    use crate::processing::lexer;
-
+pub mod node {
     // root node
     pub struct Program {
-        expression: Expr
+        pub expression: Expr
     }
 
     impl Program {
@@ -24,6 +22,7 @@ mod node {
 use crate::processing::lexer;
 use std::collections::VecDeque;
 
+// used to evaluate expressions involving increment and decrement
 fn parse_expr(tokens: &mut VecDeque<lexer::Token>) -> Option<node::Expr> {
     let mut expr: node::Expr = Default::default();
 
@@ -34,6 +33,10 @@ fn parse_expr(tokens: &mut VecDeque<lexer::Token>) -> Option<node::Expr> {
     }
 
     while let Some(token) = tokens.pop_front() {
+        if token == lexer::Token::LineBreak {
+            break;
+        }
+
         expr.literal += (token == lexer::Token::Increment) as isize;
         expr.literal -= (token == lexer::Token::Decrement) as isize;
     }
@@ -42,7 +45,7 @@ fn parse_expr(tokens: &mut VecDeque<lexer::Token>) -> Option<node::Expr> {
 }
 
 pub fn parse(mut tokens: VecDeque<lexer::Token>) -> Result<node::Program, String> {
-    let program = node::Program::new();
+    let mut program = node::Program::new();
 
     while let Some(token) = tokens.pop_front() {
         match token {
@@ -52,7 +55,10 @@ pub fn parse(mut tokens: VecDeque<lexer::Token>) -> Result<node::Program, String
             lexer::Token::Access => {},
             lexer::Token::Repeat => {},
             lexer::Token::Quote => {
-                println!("{}", parse_expr(&mut tokens).unwrap().literal);
+                program.expression = match parse_expr(&mut tokens) {
+                    Some(expr) => expr,
+                    None => return Err(format!("failed parsing {:?}", token))
+                }
             },
             lexer::Token::LineBreak => {},
         }
