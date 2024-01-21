@@ -9,7 +9,7 @@ pub fn generate(program: &parser::node::Program, out: &str) -> io::Result<()> {
     asm += "\t_start:\n";
 
     asm += "\tmov rax, 60\n";
-    asm += &format!("\tmov rdi, {}\n", program.expression.literal);
+    asm += &format!("\tmov rdi, {}\n", 1);
     asm += "\tsyscall";
 
     fs::write(out, asm)?;

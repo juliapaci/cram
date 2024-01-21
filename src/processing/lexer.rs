@@ -59,7 +59,7 @@ impl Tile {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Token {
     // keys
     Zero,
@@ -68,6 +68,7 @@ pub enum Token {
     Access,
     Repeat,
     Quote,
+    #[default]
     LineBreak,
 }
 
@@ -86,7 +87,7 @@ struct KeyData {
 impl KeyData {
     fn new() -> Self {
         Self {
-            token: Token::LineBreak,
+            token: Default::default(),
             colour: Rgb([0, 0, 0]),
             width_left: 0,
             width_right: 0,

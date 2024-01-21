@@ -1,21 +1,29 @@
 pub mod node {
-    // root node
-    pub struct Program {
-        pub expression: Expr
-    }
+    use crate::processing::lexer;
 
-    impl Program {
-        pub fn new() -> Self {
-            Self {
-                expression: Default::default()
-            }
-        }
+    // root node
+    #[derive(Default)]
+    pub struct Program {
+        pub expr: Vec<Expression>
     }
 
     // expression node
     #[derive(Default)]
     pub struct Expr {
-        pub literal: isize
+        pub kind: Expression,
+        pub value: isize
+    }
+
+    // expression
+    pub enum Expression {
+        Token(lexer::Token),    // key
+        Identifier              // dynamic token like a variable
+    }
+
+    impl Default for Expression {
+        fn default() -> Self {
+            Self::Token(Default::default())
+        }
     }
 }
 
@@ -37,15 +45,15 @@ fn parse_expr(tokens: &mut VecDeque<lexer::Token>) -> Option<node::Expr> {
             break;
         }
 
-        expr.literal += (token == lexer::Token::Increment) as isize;
-        expr.literal -= (token == lexer::Token::Decrement) as isize;
+        expr.value += (token == lexer::Token::Increment) as isize;
+        expr.value -= (token == lexer::Token::Decrement) as isize;
     }
 
     Some(expr)
 }
 
 pub fn parse(mut tokens: VecDeque<lexer::Token>) -> Result<node::Program, String> {
-    let mut program = node::Program::new();
+    let mut program: node::Program = Default::default();
 
     while let Some(token) = tokens.pop_front() {
         match token {
@@ -55,10 +63,10 @@ pub fn parse(mut tokens: VecDeque<lexer::Token>) -> Result<node::Program, String
             lexer::Token::Access => {},
             lexer::Token::Repeat => {},
             lexer::Token::Quote => {
-                program.expression = match parse_expr(&mut tokens) {
-                    Some(expr) => expr,
+                program.expr.push(match parse_expr(&mut tokens) {
+                    Some(expr) => expr.kind,
                     None => return Err(format!("failed parsing {:?}", token))
-                }
+                })
             },
             lexer::Token::LineBreak => {},
         }

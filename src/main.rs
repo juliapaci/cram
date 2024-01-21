@@ -22,11 +22,11 @@ fn main() {
     codegen::generate(&program, &format!("{}.s", out_name))
         .expect("failed to asm write to file");
 
-    Command::new("nasm")
+    Command::new("nasm")    // assemble
         .args(["-felf64", &format!("{}.s", out_name)])
         .output()
         .expect("nasm failed");
-    Command::new("ld")
+    Command::new("ld")      // link
         .arg(format!("{}.o", out_name))
         .args(["-o", &args[3]])
         .output()
