@@ -69,6 +69,7 @@ pub fn parse(mut tokens: VecDeque<lexer::Token>) -> Result<node::Program, String
                 })
             },
             lexer::Token::LineBreak => {},
+            lexer::Token::Variable => {},
         }
     }
 

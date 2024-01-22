@@ -41,6 +41,7 @@ impl Tile {
     }
 
     // will save a pixels in a tile as an image
+    #[allow(dead_code)] // debug function
     fn save_tile(&self, source: &image::DynamicImage, name: String) -> Result<(), image::ImageError>{
         let mut img = image::RgbImage::new(self.width as u32, self.height as u32);
 
@@ -61,7 +62,7 @@ impl Tile {
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Token {
-    // keys
+    // constant keys (read from key file)
     Zero,
     Increment,
     Decrement,
@@ -70,6 +71,9 @@ pub enum Token {
     Quote,
     #[default]
     LineBreak,
+
+    // variable keys (read from source file)
+    Variable
 }
 
 // data for the tokens
@@ -98,6 +102,7 @@ impl KeyData {
     }
 }
 
+// data from key file parsing (except variables)
 struct Key {
     // for turing completeness
     zero: KeyData,          // the constant `0`
@@ -109,6 +114,7 @@ struct Key {
     // language syntax
     quote: KeyData,         // for string literals
     line_break: KeyData,    // denotes a line seperation of multiple lines on the same row
+    variables: Vec<KeyData>,// variables symbols (like names) that have been defined in source files
 
     // not a token
     ignore: Rgb<u8>,        // a colour to ignore
@@ -127,6 +133,7 @@ impl Key {
 
             quote: KeyData::new(),
             line_break: KeyData::new(),
+            variables: Vec::new(),
 
             ignore: Rgb([0, 0, 0]),
             background: Rgb([0, 0, 0]),
@@ -135,30 +142,34 @@ impl Key {
     }
 
     // TODO: dont hardcode the size & maybe use a macro or something or use serde
-    // converts the members of key to an array, excluding some members
-    fn as_array(&self) -> [&KeyData; 7]  {
-        [&self.zero, &self.increment, &self.decrement, &self.access, &self.repeat, &self.quote, &self.line_break]
+    // converts the members of Key to an array, excluding some members
+    fn data(&self) -> Vec<&KeyData> {
+        let mut keys = vec![&self.zero, &self.increment, &self.decrement, &self.access, &self.repeat, &self.quote, &self.line_break]; // keys from key file
+        keys.extend(self.variables.iter()); // keys from source file (variables)
+
+        keys
     }
 
     // gets the KeyData of keys that are of the specified colour
     fn data_from_colour(&self, colour: Rgb<u8>) -> Vec<&KeyData> {
-        self.as_array().iter()
+        self.data().iter()
             .filter(|&k| k.colour == colour)
             .copied()
             .collect::<Vec<&KeyData>>()
     }
 
+    // TODO: find a way to include variables
     // returns the KeyData of a token
-    fn data_from_key(&self, key: Token) -> &KeyData {
+    fn data_from_token(&self, key: Token) -> &KeyData {
         // unsafe is fine since every token has an index in the array since its hardcoded (see as_array())
         self
-            .as_array()
+            .data()
             [unsafe {std::mem::transmute::<Token, u8>(key)} as usize]
     }
 
     // gets the largest height and width from all of the keys (likely not from the same key)
     fn get_largest(&self) -> (u8, u8) {
-        let sizes: Vec<(u8, u8)> = self.as_array()
+        let sizes: Vec<(u8, u8)> = self.data()
             .iter()
             .map(|&k| (k.width_left + k.width_right, k.height_up + k.height_down))
             .collect();
@@ -190,9 +201,29 @@ impl Key {
         self.background = *background.0;
     }
 
+    // converts an area of the image to a 2d array of pixels
+    fn tile_to_pixels(&self, tile: &Tile, image: &image::DynamicImage) -> [[Rgb<u8>; 64]; 64] {
+        let mut pixels: [[Rgb<u8>; 64]; 64] = [[Rgb([0, 0, 0]); 64]; 64];
+
+        let img_px: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+
+        for y in 0 .. tile.height as usize {
+            for x in 0 .. tile.width as usize {
+                if tile.y + y > image.height() as _ ||
+                    tile.x + x > image.width() as _ {
+                    pixels[y][x] = self.ignore;
+                }
+
+                pixels[y][x] = img_px[tile.x + x + (tile.y+y)*tile.width as usize];
+            }
+        }
+
+        pixels
+    }
+
     // TODO: make it more flexible so the key file isnt restricted to a certain resolution
     // splits an image into 64x64 chunks
-    fn image_to_tiles(&mut self, image: &image::DynamicImage) -> [[[Rgb<u8>; 64]; 64]; 16]{
+    fn image_to_tiles(&mut self, image: &image::DynamicImage) -> [[[Rgb<u8>; 64]; 64]; 16] {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
 
         let mut tiles: [[[Rgb<u8>; 64]; 64]; 16] = [[[Rgb([0, 0, 0]); 64]; 64]; 16];
@@ -210,7 +241,7 @@ impl Key {
     }
 
     // reads the key but doesnt remove parts within it. Useful for reading hollow keys
-    // will panic if there is nothing occupying the tile (or exclusively background and grid pixels)
+    // will panic if there is nothing (ignored pixels) occupying the tile (e.g. exclusively background and grid pixels)
     fn outline_key(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
         // the trimmed key
         let mut key: Vec<Vec<Rgb<u8>>> = Vec::new();
@@ -331,6 +362,7 @@ impl Key {
 
         // TODO: find better way of finding key grid colour like detect rectangles or something
         self.grid = tiles[0][0][0];
+        // TODO: find ignore pixel colour
         // TODO: better way of doing all these actions like macro or something?
         self.zero = self.identify_key_data(&tiles[0], 0);
         self.increment = self.identify_key_data(&tiles[1], 1);
@@ -405,7 +437,7 @@ impl Lexer {
 
         // if theres no first key
         // very unlikely but could happen
-        Token::LineBreak
+        Token::LineBreak // maybe should be default token?
     }
 
     // return the height of the line
@@ -413,7 +445,7 @@ impl Lexer {
     // NOTE: does not take into account BreakLines
     fn line_height(&self, begin: usize, image: &image::DynamicImage) -> u8 {
         // unwrapping is fine since there is always atleast one element when this function is called
-        let first = self.key.data_from_key(self.consume_first(begin, image));
+        let first = self.key.data_from_token(self.consume_first(begin, image));
         let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut max_height: u8 = first.height_up + first.height_down;
@@ -451,10 +483,11 @@ impl Lexer {
 
     // tokenizes a line of keys
     // returns the tokens and size of line
-    fn analyse_line(&self, begin: usize, image: &image::DynamicImage) -> (Vec<Token>, Tile) {
+    fn analyse_line(&mut self, begin: usize, image: &image::DynamicImage) -> (Vec<Token>, Tile) {
         let mut line: Vec<Token> = Vec::new();                                      // token buffer
         let mut size = Tile::from_1d(begin, image.width(), self.line_height(begin, image) as u32, image);  // size of line
         size.width -= size.x as u32;
+        // TODO: maybe instead of ignore we just skip over the width of the token when analysed
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
 
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
@@ -477,6 +510,19 @@ impl Lexer {
                     if Tile::overlapping(&Tile {x, y, width: 1, height: 1}, tile) {
                         continue;
                     }
+                }
+
+                // read variable symbols
+                if matches!(line.last(), Some(token) if *token == Token::Access) {
+                    let var = self.key.outline_key(
+                        &self.key.tile_to_pixels(&Tile {
+                            x, y,
+                            width: 64, height: 64
+                        }, &image),
+                        Token::Variable);
+
+                    self.key.variables.push(var);
+                    line.push(Token::Variable)
                 }
 
                 // checking if the amount of pixels in the key is the same as in this tile. aiming to match lexical keys to abitrary symbols
@@ -589,6 +635,8 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Token>, image::I
     println!("Finished tokenizing");
     println!("{:?} ({})", lex.tokens, lex.tokens.len());
 
+    println!("\n\n\n\n{:?}", lex.key.data());
+
     Ok(lex.tokens)
 }
 
@@ -673,11 +721,11 @@ mod tests {
     }
 
     #[test]
-    fn test_key_data_from_key() {
+    fn test_key_data_from_token() {
         let key = KeySetup::new();
 
         // using Increment as an example
-        let test = key.key.data_from_key(Token::Increment);
+        let test = key.key.data_from_token(Token::Increment);
         let expected = &key.key.increment;
 
         assert_eq!(*test, *expected);
