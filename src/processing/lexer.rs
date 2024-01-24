@@ -42,7 +42,7 @@ impl Tile {
 
     // will save a pixels in a tile as an image
     #[allow(dead_code)] // debug function
-    fn save_tile(&self, source: &image::DynamicImage, name: String) -> Result<(), image::ImageError>{
+    fn save_tile(&self, name: String, source: &image::DynamicImage) -> Result<(), image::ImageError> {
         let mut img = image::RgbImage::new(self.width as u32, self.height as u32);
 
         for y in 0..self.height as u32 {
@@ -205,16 +205,15 @@ impl Key {
     fn tile_to_pixels(&self, tile: &Tile, image: &image::DynamicImage) -> [[Rgb<u8>; 64]; 64] {
         let mut pixels: [[Rgb<u8>; 64]; 64] = [[Rgb([0, 0, 0]); 64]; 64];
 
-        let img_px: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
-
         for y in 0 .. tile.height as usize {
             for x in 0 .. tile.width as usize {
                 if tile.y + y > image.height() as _ ||
                     tile.x + x > image.width() as _ {
-                    pixels[y][x] = self.ignore;
+                    pixels[y][x] = self.background;
                 }
 
-                pixels[y][x] = img_px[tile.x + x + (tile.y+y)*tile.width as usize];
+                pixels[y][x] = image.get_pixel((tile.x + x) as u32, (tile.y + y) as u32).to_rgb();
+                // println!("{:?} ({}, {})", pixels[y][x], tile.x + x, tile.y + y);
             }
         }
 
@@ -469,12 +468,13 @@ impl Lexer {
             }
             ignore.insert(colour, true);
 
+
             max_height = self.key
                 .data_from_colour(colour)
                 .iter()
                 .map(|&k| k.height_up + k.height_down)
                 .max()
-                .unwrap()
+                .unwrap_or(0) // need to do this cause we dont check if the key exists yet
                 .max(max_height);
         }
 
@@ -516,16 +516,18 @@ impl Lexer {
                 if matches!(line.last(), Some(token) if *token == Token::Access) {
                     let var = self.key.outline_key(
                         &self.key.tile_to_pixels(&Tile {
-                            x, y,
-                            width: 64, height: 64
+                            x, y: size.y,
+                            width: 64, height: size.height
                         }, &image),
                         Token::Variable);
+
+                    println!("{var:?}");
 
                     self.key.variables.push(var);
                     line.push(Token::Variable)
                 }
 
-                // checking if the amount of pixels in the key is the same as in this tile. aiming to match lexical keys to abitrary symbols
+                // checking if a key matches pixels in a tile
                 let keys = self.key.data_from_colour(pixels[y][x]);
                 for key in keys {
                     let tile = Tile {
@@ -634,8 +636,6 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Token>, image::I
     lex.analyse(&source_img);
     println!("Finished tokenizing");
     println!("{:?} ({})", lex.tokens, lex.tokens.len());
-
-    println!("\n\n\n\n{:?}", lex.key.data());
 
     Ok(lex.tokens)
 }
@@ -821,7 +821,7 @@ mod tests {
 
     #[test]
     fn test_lexer_analyse_line() {
-        let setup = LexerSetup::new();
+        let mut setup = LexerSetup::new();
 
         // TODO: gotta fix this test to be actual dimensions but rn analyse_line() is giving back in accurate size so well just test against that until i fix it. (see analyse_line() TODOs)
         let test = setup.lexer.analyse_line(1128, &setup.img); // 1128 is first pixel of a key
