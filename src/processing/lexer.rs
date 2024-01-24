@@ -72,9 +72,14 @@ pub enum Token {
     #[default]
     LineBreak,
 
-    // variable keys (read from source file)
+    // dynamic keys (read from source file)
     Variable
 }
+
+// pub enum Lexeme {
+//     Token(Token),
+//     Identifier(KeyData)
+// }
 
 // data for the tokens
 #[derive(Debug, PartialEq)]
@@ -213,7 +218,6 @@ impl Key {
                 }
 
                 pixels[y][x] = image.get_pixel((tile.x + x) as u32, (tile.y + y) as u32).to_rgb();
-                // println!("{:?} ({}, {})", pixels[y][x], tile.x + x, tile.y + y);
             }
         }
 
@@ -221,7 +225,7 @@ impl Key {
     }
 
     // TODO: make it more flexible so the key file isnt restricted to a certain resolution
-    // splits an image into 64x64 chunks
+    // splits an image into 4x4 64x64 chunks
     fn image_to_tiles(&mut self, image: &image::DynamicImage) -> [[[Rgb<u8>; 64]; 64]; 16] {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
 
@@ -240,7 +244,7 @@ impl Key {
     }
 
     // reads the key but doesnt remove parts within it. Useful for reading hollow keys
-    // will panic if there is nothing (ignored pixels) occupying the tile (e.g. exclusively background and grid pixels)
+    // will panic if there is nothing (ignored pixels) occupying the tile (e.g. exclusively background and/or grid pixels)
     fn outline_key(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
         // the trimmed key
         let mut key: Vec<Vec<Rgb<u8>>> = Vec::new();
@@ -517,14 +521,12 @@ impl Lexer {
                     let var = self.key.outline_key(
                         &self.key.tile_to_pixels(&Tile {
                             x, y: size.y,
-                            width: 64, height: size.height
+                            width: 64, height: 64
                         }, &image),
                         Token::Variable);
 
-                    println!("{var:?}");
-
                     self.key.variables.push(var);
-                    line.push(Token::Variable)
+                    // line.push(Token::Variable)
                 }
 
                 // checking if a key matches pixels in a tile
