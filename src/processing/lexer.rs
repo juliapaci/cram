@@ -209,7 +209,7 @@ impl Key {
 
     // converts an area of the image to a 2d array of pixels
     fn tile_to_pixels(&self, tile: &Tile, image: &image::DynamicImage) -> [[Rgb<u8>; 64]; 64] {
-        let mut pixels: [[Rgb<u8>; 64]; 64] = [[Rgb([0, 0, 0]); 64]; 64];
+        let mut pixels: [[Rgb<u8>; 64]; 64] = [[self.background; 64]; 64];
 
         for y in 0 .. tile.height as usize {
             for x in 0 .. tile.width as usize {
@@ -523,11 +523,12 @@ impl Lexer {
                 if matches!(line.last(), Some(lexeme)
                             if matches!(lexeme, Lexeme::Token(token)
                                         if *token == Token::Access)) {
+                    // TODO: this weirdly breaks if colours are above it??
                     self.key.variables.push(
                         self.key.outline_key(
                             &self.key.tile_to_pixels(&Tile {
-                                x, y: size.y,
-                                width: 64, height: 64
+                                x, y: size.y-1,
+                                width: 64, height: size.height
                             }, &image),
                             Token::Variable)
                         );
@@ -538,14 +539,14 @@ impl Lexer {
                     let tile = Tile {
                         x,
                         y: y.max(key.height_up as usize) - key.height_up as usize,
-                        width: (key.width_left+key.width_right) as u32,
+                        width: (key.width_left + key.width_right) as u32,
                         height: (key.height_up + key.height_down) as u32,
                     };
 
                     // if the tile matches a key
                     if Self::compute_tile(&tile, pixels[y][x], image) == key.amount {
                         line.push(match key.token {
-                            Token::Variable => Lexeme::Identifier(self.key.variables.as_ptr() as *const i32 as usize),
+                            Token::Variable => Lexeme::Identifier(self.key.variables.iter().position(|v| v == key).unwrap()),
                             _ => Lexeme::Token(key.token)
                         });
 
