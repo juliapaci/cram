@@ -27,49 +27,51 @@ pub mod node {
     }
 }
 
-use crate::processing::lexer;
+use crate::processing::lexer::*;
 use std::collections::VecDeque;
 
 // used to evaluate expressions involving increment and decrement
-fn parse_expr(tokens: &mut VecDeque<lexer::Token>) -> Option<node::Expr> {
+fn parse_expr(tokens: &mut VecDeque<Lexeme>) -> Option<node::Expr> {
     let mut expr: node::Expr = Default::default();
 
-    if let Some(token) = tokens.front() {
-        if *token != lexer::Token::Zero {
-            return None;
-        }
+    if matches!(tokens.front(), Some(lexeme)
+                if matches!(lexeme, Lexeme::Token(token)
+                            if *token != Token::Zero)) {
+        return None;
     }
 
-    while let Some(token) = tokens.pop_front() {
-        if token == lexer::Token::LineBreak {
+    while let Some(lexeme) = tokens.pop_front() {
+        if lexeme == Lexeme::Token(Token::LineBreak) {
             break;
         }
 
-        expr.value += (token == lexer::Token::Increment) as isize;
-        expr.value -= (token == lexer::Token::Decrement) as isize;
+        expr.value += (lexeme == Lexeme::Token(Token::Increment)) as isize;
+        expr.value -= (lexeme == Lexeme::Token(Token::Decrement)) as isize;
     }
 
     Some(expr)
 }
 
-pub fn parse(mut tokens: VecDeque<lexer::Token>) -> Result<node::Program, String> {
+pub fn parse(mut tokens: VecDeque<Lexeme>) -> Result<node::Program, String> {
     let mut program: node::Program = Default::default();
 
-    while let Some(token) = tokens.pop_front() {
-        match token {
-            lexer::Token::Zero => {},
-            lexer::Token::Increment => {},
-            lexer::Token::Decrement => {},
-            lexer::Token::Access => {},
-            lexer::Token::Repeat => {},
-            lexer::Token::Quote => {
+    while let Some(lexeme) = tokens.pop_front() {
+        match lexeme {
+            Lexeme::Token(Token::Zero) => {},
+            Lexeme::Token(Token::Increment) => {},
+            Lexeme::Token(Token::Decrement) => {},
+            Lexeme::Token(Token::Access) => {},
+            Lexeme::Token(Token::Repeat) => {},
+            Lexeme::Token(Token::Quote) => {
                 program.expr.push(match parse_expr(&mut tokens) {
                     Some(expr) => expr.kind,
-                    None => return Err(format!("failed parsing {:?}", token))
+                    None => return Err(format!("failed parsing {:?}", lexeme))
                 })
             },
-            lexer::Token::LineBreak => {},
-            lexer::Token::Variable => {},
+            Lexeme::Token(Token::LineBreak) => {},
+            Lexeme::Token(Token::Variable) => {},
+
+            _ => {}
         }
     }
 

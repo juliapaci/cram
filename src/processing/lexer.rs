@@ -76,14 +76,15 @@ pub enum Token {
     Variable
 }
 
-// pub enum Lexeme {
-//     Token(Token),
-//     Identifier(KeyData)
-// }
+#[derive(Debug, PartialEq)]
+pub enum Lexeme {
+    Token(Token),       // key file tokens (static tokens i.e keys)
+    Identifier(usize) // source file tokens (dynamic tokens e.g. variables)
+}
 
 // data for the tokens
 #[derive(Debug, PartialEq)]
-struct KeyData {
+pub struct KeyData {
     token: Token,       // token that the key represents
     colour: Rgb<u8>,    // colour of key
     width_left: u8,     // width of key from the first (top left) pixel leftwards
@@ -212,9 +213,10 @@ impl Key {
 
         for y in 0 .. tile.height as usize {
             for x in 0 .. tile.width as usize {
-                if tile.y + y > image.height() as _ ||
-                    tile.x + x > image.width() as _ {
+                if tile.y + y >= image.height() as _ ||
+                    tile.x + x >= image.width() as _ {
                     pixels[y][x] = self.background;
+                    continue;
                 }
 
                 pixels[y][x] = image.get_pixel((tile.x + x) as u32, (tile.y + y) as u32).to_rgb();
@@ -379,7 +381,7 @@ impl Key {
 
 struct Lexer {
     key: Key,
-    tokens: Vec<Token>
+    tokens: Vec<Lexeme>
 }
 
 impl Lexer {
@@ -487,13 +489,14 @@ impl Lexer {
 
     // tokenizes a line of keys
     // returns the tokens and size of line
-    fn analyse_line(&mut self, begin: usize, image: &image::DynamicImage) -> (Vec<Token>, Tile) {
-        let mut line: Vec<Token> = Vec::new();                                      // token buffer
+    fn analyse_line(&mut self, begin: usize, image: &image::DynamicImage) -> (Vec<Lexeme>, Tile) {
+        let mut line: Vec<Lexeme> = Vec::new(); // token buffer
         let mut size = Tile::from_1d(begin, image.width(), self.line_height(begin, image) as u32, image);  // size of line
         size.width -= size.x as u32;
         // TODO: maybe instead of ignore we just skip over the width of the token when analysed
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
 
+        // faster to do this or to use get_pixel()?
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
 
@@ -517,21 +520,21 @@ impl Lexer {
                 }
 
                 // read variable symbols
-                if matches!(line.last(), Some(token) if *token == Token::Access) {
-                    let var = self.key.outline_key(
-                        &self.key.tile_to_pixels(&Tile {
-                            x, y: size.y,
-                            width: 64, height: 64
-                        }, &image),
-                        Token::Variable);
-
-                    self.key.variables.push(var);
-                    // line.push(Token::Variable)
+                if matches!(line.last(), Some(lexeme)
+                            if matches!(lexeme, Lexeme::Token(token)
+                                        if *token == Token::Access)) {
+                    self.key.variables.push(
+                        self.key.outline_key(
+                            &self.key.tile_to_pixels(&Tile {
+                                x, y: size.y,
+                                width: 64, height: 64
+                            }, &image),
+                            Token::Variable)
+                        );
                 }
 
                 // checking if a key matches pixels in a tile
-                let keys = self.key.data_from_colour(pixels[y][x]);
-                for key in keys {
+                for key in self.key.data_from_colour(pixels[y][x]) {
                     let tile = Tile {
                         x,
                         y: y.max(key.height_up as usize) - key.height_up as usize,
@@ -541,11 +544,10 @@ impl Lexer {
 
                     // if the tile matches a key
                     if Self::compute_tile(&tile, pixels[y][x], image) == key.amount {
-                        line.push(key.token);
-
-                        // debug stuff
-                        // tile.save_tile(image, format!("tile{}.png", x)).unwrap();
-                        // println!("found {:?}", key.token);
+                        line.push(match key.token {
+                            Token::Variable => Lexeme::Identifier(self.key.variables.as_ptr() as *const i32 as usize),
+                            _ => Lexeme::Token(key.token)
+                        });
 
                         if key.token == Token::LineBreak {
                             size.width = (x - size.x) as u32 + key.width_right as u32;
@@ -561,12 +563,11 @@ impl Lexer {
 
         // inserting a line break if there wasnt one there
         // TODO: ignore consecutive LineBreaks better
-        if let Some(&token) = line.last() {
-            if token != Token::LineBreak {
-                line.push(Token::LineBreak);
+        if let Some(&ref lexeme) = line.last() {
+            if *lexeme != Lexeme::Token(Token::LineBreak) {
+                line.push(Lexeme::Token(Token::LineBreak));
             }
         }
-
 
         (line, size)
     }
@@ -627,7 +628,7 @@ impl Lexer {
     }
 }
 
-pub fn deserialize(key: &String, source: &String) -> Result<Vec<Token>, image::ImageError>{
+pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::ImageError> {
     let key_img = ImageReader::open(key)?.with_guessed_format()?.decode()?;
     let source_img = ImageReader::open(source)?.with_guessed_format()?.decode()?;
 
@@ -827,7 +828,7 @@ mod tests {
 
         // TODO: gotta fix this test to be actual dimensions but rn analyse_line() is giving back in accurate size so well just test against that until i fix it. (see analyse_line() TODOs)
         let test = setup.lexer.analyse_line(1128, &setup.img); // 1128 is first pixel of a key
-        let expected = (vec![Token::Quote, Token::LineBreak],
+        let expected = (vec![Lexeme::Token(Token::Quote), Lexeme::Token(Token::LineBreak)],
                         Tile {
                             x: 28,
                             y: 11,
@@ -844,7 +845,7 @@ mod tests {
 
         setup.lexer.analyse(&setup.img);
         let test = setup.lexer.tokens;
-        let expected = vec![Token::Quote, Token::LineBreak];
+        let expected = vec![Lexeme::Token(Token::Quote), Lexeme::Token(Token::LineBreak)];
 
         assert_eq!(test, expected);
     }
