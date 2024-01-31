@@ -1,78 +1,81 @@
-pub mod node {
-    use crate::processing::lexer;
-
-    // root node
-    #[derive(Default)]
-    pub struct Program {
-        pub expr: Vec<Expression>
-    }
-
-    // expression node
-    #[derive(Default)]
-    pub struct Expr {
-        pub kind: Expression,
-        pub value: isize
-    }
-
-    // expression
-    pub enum Expression {
-        Token(lexer::Token),    // key
-        Identifier              // dynamic token like a variable
-    }
-
-    impl Default for Expression {
-        fn default() -> Self {
-            Self::Token(Default::default())
-        }
-    }
-}
-
 use crate::processing::lexer::*;
 use std::collections::VecDeque;
 
-// used to evaluate expressions involving increment and decrement
-fn parse_expr(tokens: &mut VecDeque<Lexeme>) -> Option<node::Expr> {
-    let mut expr: node::Expr = Default::default();
-
-    if matches!(tokens.front(), Some(lexeme)
-                if matches!(lexeme, Lexeme::Token(token)
-                            if *token != Token::Zero)) {
-        return None;
+pub mod node {
+    #[derive(Debug)]
+    pub struct Expression {
+        pub value: isize
     }
 
-    while let Some(lexeme) = tokens.pop_front() {
-        if lexeme == Lexeme::Token(Token::LineBreak) {
-            break;
+    #[derive(Debug)]
+    pub struct Statement {
+        pub expressions: Vec<Expression>
+    }
+
+    #[derive(Default, Debug)]
+    pub struct Program {
+        pub statements: Vec<Statement>
+    }
+}
+
+struct Parser {
+    tokens: VecDeque<Lexeme>
+}
+
+impl Parser {
+    // used to evaluate integer literal expressions involving increment and decrement
+    fn eval_lit(&mut self) -> isize {
+        let mut value = Default::default();
+
+        while let Some(lexeme) = self.tokens.pop_front() {
+            if lexeme == Lexeme::Token(Token::LineBreak) {
+                break;
+            }
+
+            value += (lexeme == Lexeme::Token(Token::Increment)) as isize;
+            value -= (lexeme == Lexeme::Token(Token::Decrement)) as isize;
         }
 
-        expr.value += (lexeme == Lexeme::Token(Token::Increment)) as isize;
-        expr.value -= (lexeme == Lexeme::Token(Token::Decrement)) as isize;
+        value
     }
 
-    Some(expr)
+
+    fn parse_expr(&mut self) -> Option<node::Expression> {
+        match self.tokens.front() {
+            Some(Lexeme::Token(token)) => {
+                if *token != Token::Zero  {
+                    return None
+                }
+                Some(node::Expression{value: self.eval_lit()})
+            }
+
+            // Lexeme::Identifier(id) =>
+
+            _ => None
+        }
+    }
 }
 
 pub fn parse(mut tokens: VecDeque<Lexeme>) -> Result<node::Program, String> {
+    let mut parser = Parser {
+        tokens
+    };
     let mut program: node::Program = Default::default();
 
-    while let Some(lexeme) = tokens.pop_front() {
-        match lexeme {
-            Lexeme::Token(Token::Zero) => {},
-            Lexeme::Token(Token::Increment) => {},
-            Lexeme::Token(Token::Decrement) => {},
-            Lexeme::Token(Token::Access) => {},
-            Lexeme::Token(Token::Repeat) => {},
-            Lexeme::Token(Token::Quote) => {
-                program.expr.push(match parse_expr(&mut tokens) {
-                    Some(expr) => expr.kind,
-                    None => return Err(format!("failed parsing {:?}", lexeme))
-                })
-            },
-            Lexeme::Token(Token::LineBreak) => {},
-            Lexeme::Token(Token::Variable) => {},
+    while let Some(lexeme) = parser.tokens.pop_front() {
+            match lexeme {
+                Lexeme::Token(Token::Zero) => {},
+                Lexeme::Token(Token::Increment) => {},
+                Lexeme::Token(Token::Decrement) => {},
+                Lexeme::Token(Token::Access) => {},
+                Lexeme::Token(Token::Repeat) => {},
+                Lexeme::Token(Token::Quote) => {},
+                Lexeme::Token(Token::LineBreak) => {},
 
-            _ => {}
-        }
+                Lexeme::Identifier(id) => {}
+
+                Lexeme::Token(Token::Variable) => {}, // not possible
+            }
     }
 
     Ok(program)

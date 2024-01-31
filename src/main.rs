@@ -17,7 +17,10 @@ fn main() {
     }
 
     let tokens  = lexer::deserialize(&args[1], &args[2]).unwrap();
+    // println!("{:?} ({})", tokens, tokens.len());
     let program = parser::parse(tokens.into()).unwrap();
+    println!("{program:?}");
+
     let out_name = format!("out/{}", Path::new(&args[3]).file_stem().unwrap().to_str().unwrap());
     codegen::generate(&program, &format!("{}.s", out_name))
         .expect("failed to asm write to file");
