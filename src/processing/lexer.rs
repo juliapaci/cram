@@ -639,7 +639,6 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
 
     lex.analyse(&source_img);
     println!("Finished tokenizing");
-    println!("{:?} ({})", lex.tokens, lex.tokens.len());
 
     Ok(lex.tokens)
 }
@@ -651,7 +650,7 @@ mod tests {
 
     // Tile tests
     #[test]
-    fn test_tile_from_1d() {
+    fn tile_from_1d() {
         let img = ImageReader::open("test/100x100.png").unwrap().decode().unwrap();
 
         let test = Tile::from_1d(123, 12, 3, &img);
@@ -666,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tile_overlapping() {
+    fn tile_overlapping() {
         let test = Tile {
             x: 19,
             y: 38,
@@ -713,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn test_key_data_from_colour() {
+    fn key_data_from_colour() {
         let key = KeySetup::new();
 
         // using Increment as an example
@@ -725,7 +724,7 @@ mod tests {
     }
 
     #[test]
-    fn test_key_data_from_token() {
+    fn key_data_from_token() {
         let key = KeySetup::new();
 
         // using Increment as an example
@@ -736,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn test_key_get_largest() {
+    fn key_get_largest() {
         let key = KeySetup::new();
 
         let test = key.key.get_largest();
@@ -747,7 +746,7 @@ mod tests {
     }
 
     #[test]
-    fn test_key_identify_background() {
+    fn key_identify_background() {
         let key_file = ImageReader::open("examples/key.png").unwrap().decode().unwrap();
 
         let mut test = Key::new();
@@ -786,7 +785,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lexer_compute_tile() {
+    fn lexer_compute_tile() {
         let img = ImageReader::open("test/100x100.png").unwrap().decode().unwrap();
 
         let test = Lexer::compute_tile(&Tile {
@@ -804,7 +803,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lexer_consume_first() {
+    fn lexer_consume_first() {
         let setup = LexerSetup::new();
 
         let test = setup.lexer.consume_first(21, &setup.img);
@@ -814,7 +813,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lexer_line_height() {
+    fn lexer_line_height() {
         let setup = LexerSetup::new();
 
         let test = setup.lexer.line_height(23, &setup.img);
@@ -824,7 +823,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lexer_analyse_line() {
+    fn lexer_analyse_line() {
         let mut setup = LexerSetup::new();
 
         // TODO: gotta fix this test to be actual dimensions but rn analyse_line() is giving back in accurate size so well just test against that until i fix it. (see analyse_line() TODOs)
@@ -841,7 +840,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lexer_analyse() {
+    fn lexer_analyse() {
         let mut setup = LexerSetup::new();
 
         setup.lexer.analyse(&setup.img);
