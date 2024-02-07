@@ -30,9 +30,32 @@ impl Tile {
             (a.y + a.height as usize >= b.y && b.y + b.height as usize >= a.y)
     }
 
+    // returns the amount of same coloured pixels in a tile
+    fn compute_tile(&self, colour: Rgb<u8>, image: &image::DynamicImage) -> u32 {
+        // TODO: to stop computing this everywhere maybe make a getter for it or something
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+        let mut amount = 0;
+
+        let bound = (image.width()*image.height()) as isize;
+        for y in 0..self.height as usize {
+            for x in 0..self.width as isize {
+                let index: isize = (self.x as isize)+x + ((self.y + y)*(image.width() as usize)) as isize;
+
+                if index < 0 || index >= bound {
+                    return 0;
+                }
+
+                amount += (pixels[index as usize] == colour) as u32;
+            }
+        }
+
+        amount
+    }
+
     // loops through the tile top to bottom
     // TODO: make a generic tile iteration for use in the lexer
     fn iterate(&self, f: &dyn Fn(usize, usize)) {
+        todo!();
         for x in self.x .. self.x + self.width as usize {
             for y in self.y .. self.y + self.height as usize {
                 f(x, y)
@@ -71,6 +94,8 @@ pub enum Token {
     Quote,
     #[default]
     LineBreak,
+    ScopeStart,
+    ScopeEnd,
 
     // dynamic keys (read from source file)
     Variable
@@ -78,8 +103,8 @@ pub enum Token {
 
 #[derive(Debug, PartialEq)]
 pub enum Lexeme {
-    Token(Token),       // key file tokens (static tokens i.e keys)
-    Identifier(usize) // source file tokens (dynamic tokens e.g. variables)
+    Token(Token),     // key file tokens (static tokens i.e keys)
+    Identifier(usize) // source file tokens (dynamic tokens e.g. variables) with a wrapped id
 }
 
 // data for the tokens
@@ -392,26 +417,26 @@ impl Lexer {
         }
     }
 
-    // returns the amount of same coloured pixels in a tile
-    pub fn compute_tile(tile: &Tile, colour: Rgb<u8>, image: &image::DynamicImage) -> u32 {
-        // TODO: to stop computing this everywhere maybe make a getter for it or something
+    // detects rectangles for scopes
+    // returns the tile that encampasses the rectangle
+    fn detect_rectangle(begin: (u32, u32), colour: Rgb<u8>, image: &image::DynamicImage) -> Option<Tile> {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
-        let mut amount = 0;
+        let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
 
-        let bound = (image.width()*image.height()) as isize;
-        for y in 0..tile.height as usize {
-            for x in 0..tile.width as isize {
-                let index: isize = (tile.x as isize)+x + ((tile.y + y)*(image.width() as usize)) as isize;
-                if index < 0 || index >= bound {
-                    // continue;
-                    return 0;
+        for x in begin.0..image.width() {
+            for y in begin.1..image.height() {
+                if pixels[y as usize][x as usize] != colour {
+                    return Some(Tile {
+                        x: begin.0 as usize,
+                        y: begin.1 as usize,
+                        width: x - begin.0,
+                        height: y - begin.1
+                    });
                 }
-
-                amount += (pixels[index as usize] == colour) as u32;
             }
         }
 
-        amount
+        None
     }
 
     // returns the first keys token from a 1d index onwards
@@ -434,7 +459,7 @@ impl Lexer {
                 );
 
                 // if the tile matches a key
-                if Self::compute_tile(&tile, pixels[i], image) == key.amount {
+                if tile.compute_tile( pixels[i], image) == key.amount {
                     return key.token;
                 }
             }
@@ -514,7 +539,7 @@ impl Lexer {
 
                 // checking if where in an area thats already been checked
                 if let Some(tile) = ignore.get(&pixels[y][x]) {
-                    if Tile::overlapping(&Tile {x, y, width: 1, height: 1}, tile) {
+                    if Tile::overlapping(&Tile {x, y, width: 0, height: 0}, tile) {
                         continue;
                     }
                 }
@@ -544,7 +569,7 @@ impl Lexer {
                     };
 
                     // if the tile matches a key
-                    if Self::compute_tile(&tile, pixels[y][x], image) == key.amount {
+                    if tile.compute_tile(pixels[y][x], image) == key.amount {
                         line.push(match key.token {
                             Token::Variable => Lexeme::Identifier(self.key.variables.iter().position(|v| v == key).unwrap()),
                             _ => Lexeme::Token(key.token)
@@ -554,6 +579,11 @@ impl Lexer {
                             size.width = (x - size.x) as u32 + key.width_right as u32;
                             break 'img;
                         }
+                    }
+                    // if the pixel is unknown then it could be a scope
+                    // TODO: panics when a variable is a rectangle
+                    else {
+                        println!("{:?}", Self::detect_rectangle((x as u32, y as u32), pixels[y][x], image));
                     }
 
                     // marks this area as already checked
@@ -693,6 +723,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn tile_compute_tile() {
+        let img = ImageReader::open("test/100x100.png").unwrap().decode().unwrap();
+
+        let test = Tile {
+            x: 7,
+            y: 12,
+            width: 11,
+            height: 23
+        }.compute_tile(Rgb([34, 32, 52]), &img);
+        let expected = 253;
+
+        assert_eq!(test, expected);
+
+    }
+
     // Key tests
     struct KeySetup {
         img: image::DynamicImage,
@@ -782,24 +828,6 @@ mod tests {
 
             setup
         }
-    }
-
-    #[test]
-    fn lexer_compute_tile() {
-        let img = ImageReader::open("test/100x100.png").unwrap().decode().unwrap();
-
-        let test = Lexer::compute_tile(&Tile {
-            x: 7,
-            y: 12,
-            width: 11,
-            height: 23
-        },
-        Rgb([34, 32, 52]),
-        &img);
-        let expected = 253;
-
-        assert_eq!(test, expected);
-
     }
 
     #[test]

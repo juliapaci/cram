@@ -2,9 +2,9 @@ use crate::processing::lexer::*;
 use std::collections::VecDeque;
 
 pub mod node {
-    #[derive(Debug)]
-    pub struct Expression {
-        pub value: isize
+    #[derive(Default, Debug)]
+    pub struct Program {
+        pub statements: Vec<Statement>
     }
 
     #[derive(Debug)]
@@ -12,9 +12,15 @@ pub mod node {
         pub expressions: Vec<Expression>
     }
 
-    #[derive(Default, Debug)]
-    pub struct Program {
-        pub statements: Vec<Statement>
+    #[derive(Debug)]
+    pub struct Expression {
+        pub value: isize
+    }
+
+    #[derive(Debug)]
+    pub struct Loop {
+        pub condition: Expression,   // condition to continue if not zero
+        pub body: Program
     }
 }
 
@@ -54,6 +60,10 @@ impl Parser {
             _ => None
         }
     }
+
+    // fn parse_loop(&mut self) -> Option<node::Loop> {
+    //
+    // }
 }
 
 pub fn parse(mut tokens: VecDeque<Lexeme>) -> Result<node::Program, String> {
@@ -64,17 +74,20 @@ pub fn parse(mut tokens: VecDeque<Lexeme>) -> Result<node::Program, String> {
 
     while let Some(lexeme) = parser.tokens.pop_front() {
             match lexeme {
-                Lexeme::Token(Token::Zero) => {},
-                Lexeme::Token(Token::Increment) => {},
-                Lexeme::Token(Token::Decrement) => {},
-                Lexeme::Token(Token::Access) => {},
-                Lexeme::Token(Token::Repeat) => {},
-                Lexeme::Token(Token::Quote) => {},
-                Lexeme::Token(Token::LineBreak) => {},
+                Lexeme::Token(Token::Zero) => {}
+                Lexeme::Token(Token::Increment) => {}
+                Lexeme::Token(Token::Decrement) => {}
+                Lexeme::Token(Token::Access) => {}
+                Lexeme::Token(Token::Repeat) => {}
+                Lexeme::Token(Token::Quote) => {}
+                Lexeme::Token(Token::LineBreak) => {}
+
+                Lexeme::Token(Token::ScopeStart) => {}
+                Lexeme::Token(Token::ScopeEnd) => {}
 
                 Lexeme::Identifier(id) => {}
 
-                Lexeme::Token(Token::Variable) => {}, // not possible
+                Lexeme::Token(Token::Variable) => {} // not possible
             }
     }
 
