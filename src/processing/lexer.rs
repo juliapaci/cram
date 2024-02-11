@@ -308,7 +308,7 @@ impl Key {
             key.push(left);
         }
 
-        // top left pixels' coords
+        // top left pixel's coords
         let mut first_pixel: (usize, usize) = Default::default();
 
         first_pixel.0 = tile    // x
@@ -334,7 +334,7 @@ impl Key {
                 .collect::<Vec<usize>>()
                 .first().unwrap_or(&0);
 
-        // left most pixels' coords
+        // left most pixel's coords
         let leftmost_pixel: (usize, usize) = tile
             .iter()
             .enumerate()
@@ -419,24 +419,27 @@ impl Lexer {
 
     // detects rectangles for scopes
     // returns the tile that encampasses the rectangle
-    fn detect_rectangle(begin: (u32, u32), colour: Rgb<u8>, image: &image::DynamicImage) -> Option<Tile> {
+    fn detect_rectangle(&self, begin: (usize, usize), image: &image::DynamicImage) -> Tile {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
 
-        for x in begin.0..image.width() {
-            for y in begin.1..image.height() {
-                if pixels[y as usize][x as usize] != colour {
-                    return Some(Tile {
-                        x: begin.0 as usize,
-                        y: begin.1 as usize,
-                        width: x - begin.0,
-                        height: y - begin.1
-                    });
-                }
-            }
-        }
+        Tile {
+            x: begin.0,
+            y: begin.1,
 
-        None
+            width: pixels[begin.1][begin.0..]
+                .iter()
+                .position(|p| *p == self.key.background)
+                .unwrap_or(image.width() as usize) as u32,
+
+            height: pixels
+                .iter()
+                .map(|row| row[begin.0])
+                .collect::<Vec<Rgb<u8>>>()[begin.1..]
+                    .iter()
+                    .position(|&p| p == self.key.background)
+                    .unwrap_or(image.height() as usize) as u32
+        }
     }
 
     // returns the first keys token from a 1d index onwards
@@ -449,8 +452,7 @@ impl Lexer {
                 continue;
             }
 
-            let keys = self.key.data_from_colour(pixels[i]);
-            for key in keys {
+            for key in self.key.data_from_colour(pixels[i]) {
                 let tile = Tile::from_1d(
                     i.max(key.width_left as usize) - key.width_left as usize,
                     (key.width_left + key.width_right) as u32,
@@ -459,14 +461,13 @@ impl Lexer {
                 );
 
                 // if the tile matches a key
-                if tile.compute_tile( pixels[i], image) == key.amount {
+                if tile.compute_tile(pixels[i], image) == key.amount {
                     return key.token;
                 }
             }
         }
 
         // if theres no first key
-        // very unlikely but could happen
         Token::LineBreak // maybe should be default token?
     }
 
@@ -559,8 +560,25 @@ impl Lexer {
                         );
                 }
 
+                let keys = self.key.data_from_colour(pixels[y][x]);
+
+                // if the pixel is unknown then it could be a scope
+                // TODO: panics when variables are referenced with rectangular symbols/names
+                if keys.is_empty() {
+                    let rect = self.detect_rectangle((x, y), image);
+
+                    // rectangle is big enough to be a scope
+                    if rect.width > 64 && rect.height > 64 {
+                        // TODO: how to end scope?
+                        line.push(Lexeme::Token(Token::ScopeStart));
+
+                        // TODO: implement a queue for self.key.ignore that keeps track of pixels to ignore
+                        //       we can use this for ignoring scope bg
+                    }
+                }
+
                 // checking if a key matches pixels in a tile
-                for key in self.key.data_from_colour(pixels[y][x]) {
+                for key in keys {
                     let tile = Tile {
                         x,
                         y: y.max(key.height_up as usize) - key.height_up as usize,
@@ -579,11 +597,6 @@ impl Lexer {
                             size.width = (x - size.x) as u32 + key.width_right as u32;
                             break 'img;
                         }
-                    }
-                    // if the pixel is unknown then it could be a scope
-                    // TODO: panics when a variable is a rectangle
-                    else {
-                        println!("{:?}", Self::detect_rectangle((x as u32, y as u32), pixels[y][x], image));
                     }
 
                     // marks this area as already checked
