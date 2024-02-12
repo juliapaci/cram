@@ -17,7 +17,7 @@ fn main() {
     }
 
     let tokens  = lexer::deserialize(&args[1], &args[2]).unwrap();
-    // println!("{:?} ({})", tokens, tokens.len());
+    println!("{:?} ({})", tokens, tokens.len());
     let program = parser::parse(tokens.into()).unwrap();
     println!("{program:?}");
 
