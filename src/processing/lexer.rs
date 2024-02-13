@@ -1,7 +1,7 @@
 use image::io::Reader as ImageReader;
 use image::{GenericImage, Rgb, GenericImageView, Pixel};
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 // TODO: refactor Key parsing to use this
 #[derive(Default, PartialEq, Debug)]
@@ -154,7 +154,7 @@ struct Key {
     variables: Vec<KeyData>,    // variables symbols (like names) that have been defined in source files
 
     // not a token
-    ignore: VecDeque<Scope>,    // a colour to ignore
+    ignore: Vec<Scope>,    // a colour to ignore
     background: Rgb<u8>,        // background colour of the image
     grid: Rgb<u8>               // grid colour for the key file
 }
@@ -172,7 +172,7 @@ impl Key {
             line_break: KeyData::new(),
             variables: Vec::new(),
 
-            ignore: VecDeque::new(),
+            ignore: Vec::new(),
             background: Rgb([0, 0, 0]),
             grid: Rgb([0, 0, 0])
         }
@@ -530,7 +530,7 @@ impl Lexer {
         size.width -= size.x as u32;
         // TODO: maybe instead of ignore we just skip over the width of the token when analysed
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
-        let mut scope = VecDeque::new();
+        let mut scope = Vec::new();
 
         if size.height == 0 {
             return (Vec::new(), size);
@@ -540,8 +540,16 @@ impl Lexer {
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
             for y in size.y.max(size.height as usize) - size.height as usize .. (size.y + size.height as usize).min(image.height() as usize) {
 
+                // TODO: find better way to do this
+                // pushes all the scopes that are in a temp buffer to the real one
+                // for rust safety
+                if let Some(s) = scope.pop() {
+                    self.key.ignore.push(s);
+                }
+
+                let curr_scope = self.key.ignore.last();
                 if pixels[y][x] == self.key.background ||
-                    pixels[y][x] == self.key.ignore.iter().last().unwrap_or(&Scope { colour: self.key.background, tile: Tile {x: 0, y: 0, width: 0, height: 0}}).colour {
+                    pixels[y][x] == curr_scope.unwrap_or(&Scope { colour: self.key.background, tile: Tile {x: 0, y: 0, width: 0, height: 0}}).colour {
                     continue;
                 }
 
@@ -567,10 +575,6 @@ impl Lexer {
                         );
                 }
 
-                if let Some(s) = scope.pop_back() {
-                    self.key.ignore.push_back(s);
-                }
-
                 let keys = self.key.data_from_colour(pixels[y][x]);
 
                 // if the pixel is unknown then it could be a scope
@@ -580,11 +584,15 @@ impl Lexer {
 
                     // rectangle is big enough to be a scope
                     if rect.width > 64 && rect.height > 64 {
-                        // TODO: how to end scope?
-                        // TODO: check for scope tile overlap to not push multiple ScopStarts
-                        // TODO: make it work
+                        // if let Some(tile) = curr_scope {
+                        //     if Tile::overlapping(&tile.tile, &Tile {x, y, width: 0, height: 0}) {
+                        //         println!("hit");
+                        //     }
+                        // }
+
+                        // TODO: check for ScopeEnd and push it?
                         line.push(Lexeme::Token(Token::ScopeStart));
-                        scope.push_back(Scope {
+                        scope.push(Scope {
                             colour: pixels[y][x],
                             tile: rect
                         });
