@@ -521,20 +521,21 @@ impl Lexer {
     // tokenizes a line of keys
     // returns the tokens and size of line
     fn analyse_line(&mut self, begin: usize, image: &image::DynamicImage) -> (Vec<Lexeme>, Tile) {
+        let mut size = Tile::from_1d(begin, image.width(), self.line_height(begin, image) as u32, image);  // size of line
+        size.width -= size.x as u32;
+        if size.height == 0 {
+            return (Vec::new(), size);
+        }
+
         // faster to do this or to use get_pixel()?
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
 
         let mut line: Vec<Lexeme> = Vec::new(); // token buffer
-        let mut size = Tile::from_1d(begin, image.width(), self.line_height(begin, image) as u32, image);  // size of line
-        size.width -= size.x as u32;
+
         // TODO: maybe instead of ignore we just skip over the width of the token when analysed
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
         let mut scope = Vec::new();
-
-        if size.height == 0 {
-            return (Vec::new(), size);
-        }
 
         // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
@@ -548,8 +549,10 @@ impl Lexer {
                 }
 
                 let curr_scope = self.key.ignore.last();
-                if pixels[y][x] == self.key.background ||
-                    pixels[y][x] == curr_scope.unwrap_or(&Scope { colour: self.key.background, tile: Tile {x: 0, y: 0, width: 0, height: 0}}).colour {
+                if pixels[y][x] == match curr_scope {
+                    None => self.key.background,
+                    Some(s) => s.colour
+                } {
                     continue;
                 }
 
@@ -560,7 +563,7 @@ impl Lexer {
                     }
                 }
 
-                // read variable symbols
+                // read variable symbols if Access token was before
                 if matches!(line.last(), Some(lexeme)
                             if matches!(lexeme, Lexeme::Token(token)
                                         if *token == Token::Access)) {
@@ -575,21 +578,25 @@ impl Lexer {
                         );
                 }
 
+                // TODO: how to handle end of scope?
+                //       code can be out side the scope x wise but then we can return into the same scope on the next line?
+                if let Some(tile) = curr_scope {
+                    // let test = Tile::overlapping(&tile.tile, &Tile {x: 0, y, width: image.width(), height: 0});
+                    // println!("{:?} vs {:?} ({test})", tile.tile, Tile {x: 0, y, width: image.width(), height: 0});
+                    if !Tile::overlapping(&tile.tile, &Tile {x: 0, y, width: image.width(), height: 0}) {
+                        line.push(Lexeme::Token(Token::ScopeEnd));
+                        self.key.ignore.pop();
+                    }
+                }
+
                 let keys = self.key.data_from_colour(pixels[y][x]);
 
                 // if the pixel is unknown then it could be a scope
                 // TODO: panics when variables are referenced with rectangular symbols/names
                 if keys.is_empty() {
                     let rect = self.detect_rectangle((x, y), image);
-
                     // rectangle is big enough to be a scope
                     if rect.width > 64 && rect.height > 64 {
-                        // if let Some(tile) = curr_scope {
-                        //     if Tile::overlapping(&tile.tile, &Tile {x, y, width: 0, height: 0}) {
-                        //         println!("hit");
-                        //     }
-                        // }
-
                         // TODO: check for ScopeEnd and push it?
                         line.push(Lexeme::Token(Token::ScopeStart));
                         scope.push(Scope {
