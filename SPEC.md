@@ -50,10 +50,10 @@ The order of the keys, wrapping left to right, is as follows:
 1. Zero         -   The constant integer literal zero
 2. Increment    -   Increments an integer by 1
 3. Decrement    -   Decrements an integer by 1
-4. Access       -
+4. Access       -   Declares a variable
 5. Repeat       -
-6. Quote        -   interprets an integer as ASCII "printable characters"
-7. Line Break   -   denotes the end of a line
+6. Quote        -   Interprets an integer as ASCII "printable characters"
+7. Line Break   -   Denotes the end of a line
 
 ## source
 
@@ -67,3 +67,16 @@ line:
     - a lines height is defined by the greatest height of the keys that intersect a ray from the middle row of the first key to the lines width (currently, the ray does not check if the key exists, it goes off pixel colours only)
 
 # Grammar
+
+## syntax
+
+### variables
+
+variables a declared using the Access key paired with the variables symbol (like a variable name)   \
+variables are referenced by their symbols
+
+### scopes
+scopes are denoted by a solid rectangle with a background colour that differs from the regular background   \
+these initial definitions expect either params/return values for functions, conditions for loops, etc.      \
+a scope body is defined by any tokens which are in the foreground of the scopes background                  \
+a function can be called by drawing an empty 64x64 tile of a scopes body                                    \
