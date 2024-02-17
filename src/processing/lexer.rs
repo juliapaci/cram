@@ -101,11 +101,10 @@ pub enum Token {
     Variable
 }
 
-// (_, scope)
 #[derive(Debug, PartialEq)]
 pub enum Lexeme {
-    Token((Token, usize)),     // key file tokens (static tokens i.e keys)
-    Identifier((usize, usize)) // source file tokens (dynamic tokens e.g. variables) with a wrapped id
+    Token(Token),     // key file tokens (static tokens i.e keys)
+    Identifier(usize) // source file tokens (dynamic tokens e.g. variables) with a wrapped id
 }
 
 #[derive(Debug)]
@@ -194,12 +193,6 @@ impl Key {
             .filter(|&k| k.colour == colour)
             .copied()
             .collect::<Vec<&KeyData>>()
-    }
-
-    // gets the scope id/depth from its background colour
-    fn depth_from_colour(&self, colour: Rgb<u8>) -> Option<usize> {
-        self.ignore.iter()
-            .position(|s| s.colour == colour)
     }
 
     // TODO: find a way to include variables
@@ -542,7 +535,7 @@ impl Lexer {
 
         // TODO: maybe instead of ignore we just skip over the width of the token when analysed
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
-        let mut scope_buffer = Vec::new();
+        let mut scope = Vec::new();
 
         // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
@@ -551,11 +544,10 @@ impl Lexer {
                 // TODO: find better way to do this
                 // pushes all the scopes that are in a temp buffer to the real one
                 // for rust safety
-                if let Some(s) = scope_buffer.pop() {
+                if let Some(s) = scope.pop() {
                     self.key.ignore.push(s);
                 }
 
-                // TODO: cant use .last() to get current scope anymore
                 let curr_scope = self.key.ignore.last();
                 if pixels[y][x] == match curr_scope {
                     None => self.key.background,
@@ -563,11 +555,6 @@ impl Lexer {
                 } {
                     continue;
                 }
-                let curr_scope_depth = match curr_scope {
-                    Some(scope) => self.key.depth_from_colour(scope.colour).unwrap(),
-                    None => 0
-                };
-
 
                 // checking if where in an area thats already been checked
                 if let Some(tile) = ignore.get(&pixels[y][x]) {
@@ -578,7 +565,7 @@ impl Lexer {
 
                 // read variable symbols if Access token was before
                 if matches!(line.last(), Some(lexeme)
-                            if matches!(lexeme, Lexeme::Token((token, _))
+                            if matches!(lexeme, Lexeme::Token(token)
                                         if *token == Token::Access)) {
                     // TODO: this weirdly breaks if colours are above it??
                     self.key.variables.push(
@@ -593,14 +580,11 @@ impl Lexer {
 
                 // TODO: how to handle end of scope?
                 //       code can be out side the scope x wise but then we can return into the same scope on the next line?
-                if let Some(scope) = curr_scope {
+                if let Some(tile) = curr_scope {
                     // let test = Tile::overlapping(&tile.tile, &Tile {x: 0, y, width: image.width(), height: 0});
                     // println!("{:?} vs {:?} ({test})", tile.tile, Tile {x: 0, y, width: image.width(), height: 0});
-                    if !Tile::overlapping(&scope.tile, &Tile {x: 0, y, width: image.width(), height: 0}) {
-                        line.push(Lexeme::Token((
-                                    Token::ScopeEnd,
-                                    self.key.depth_from_colour(scope.colour).unwrap() // TODO: should handle None properly
-                                    )));
+                    if !Tile::overlapping(&tile.tile, &Tile {x: 0, y, width: image.width(), height: 0}) {
+                        line.push(Lexeme::Token(Token::ScopeEnd));
                         self.key.ignore.pop();
                     }
                 }
@@ -611,14 +595,11 @@ impl Lexer {
                 // TODO: panics when variables are referenced with rectangular symbols/names
                 if keys.is_empty() {
                     let rect = self.detect_rectangle((x, y), image);
-
                     // rectangle is big enough to be a scope
                     if rect.width > 64 && rect.height > 64 {
-                        line.push(Lexeme::Token((
-                                Token::ScopeStart,
-                                curr_scope_depth
-                                )));
-                        scope_buffer.push(Scope {
+                        // TODO: check for ScopeEnd and push it?
+                        line.push(Lexeme::Token(Token::ScopeStart));
+                        scope.push(Scope {
                             colour: pixels[y][x],
                             tile: rect
                         });
@@ -637,10 +618,8 @@ impl Lexer {
                     // if the tile matches a key
                     if tile.compute_tile(pixels[y][x], image) == key.amount {
                         line.push(match key.token {
-                            Token::Variable => Lexeme::Identifier((
-                                self.key.variables.iter().position(|v| v == key).unwrap(),
-                                curr_scope_depth)),
-                            _ => Lexeme::Token((key.token, curr_scope_depth))
+                            Token::Variable => Lexeme::Identifier(self.key.variables.iter().position(|v| v == key).unwrap()),
+                            _ => Lexeme::Token(key.token)
                         });
 
                         if key.token == Token::LineBreak {
@@ -658,8 +637,8 @@ impl Lexer {
         // inserting a line break if there wasnt one there
         // TODO: ignore consecutive LineBreaks better
         if let Some(&ref lexeme) = line.last() {
-            if let Lexeme::Token((Token::LineBreak, _)) = *lexeme {
-                line.push(Lexeme::Token((Token::LineBreak, 0))); // TODO: cant just say this is always global scope
+            if *lexeme != Lexeme::Token(Token::LineBreak) {
+                line.push(Lexeme::Token(Token::LineBreak));
             }
         }
 
