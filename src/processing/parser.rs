@@ -81,13 +81,11 @@ pub fn parse(mut tokens: VecDeque<Lexeme>) -> Result<node::Program, String> {
                 Lexeme::Token(Token::Repeat) => {}
                 Lexeme::Token(Token::Quote) => {}
                 Lexeme::Token(Token::LineBreak) => {}
-
+                Lexeme::Token(Token::Variable) => unreachable!(),
                 Lexeme::Token(Token::ScopeStart) => {}
                 Lexeme::Token(Token::ScopeEnd) => {}
 
                 Lexeme::Identifier(id) => {}
-
-                Lexeme::Token(Token::Variable) => {} // not possible
             }
     }
 

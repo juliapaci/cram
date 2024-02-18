@@ -4,7 +4,7 @@ use image::{GenericImage, Rgb, GenericImageView, Pixel};
 use std::collections::HashMap;
 
 // TODO: refactor Key parsing to use this
-#[derive(Default, PartialEq, Debug)]
+#[derive(Default, Copy, Clone, PartialEq, Debug)]
 struct Tile {
     // Tile assumes a top left origin
     x: usize,
@@ -52,15 +52,57 @@ impl Tile {
         amount
     }
 
-    // loops through the tile top to bottom
-    // TODO: make a generic tile iteration for use in the lexer
-    fn iterate(&self, f: &dyn Fn(usize, usize)) {
-        todo!();
-        for x in self.x .. self.x + self.width as usize {
-            for y in self.y .. self.y + self.height as usize {
-                f(x, y)
+
+    // like a custom .windows() over the image
+    // TODO: make better name
+    // F takes x, y and returns values to increase tile.x, tile.y & to append to tokens
+    fn tiles
+        <F: Fn(usize, usize) -> (usize, usize, Vec<Lexeme>)>
+        (self, f: F, image: &image::DynamicImage) -> Vec<Lexeme>
+    {
+        let mut tile = self;
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+        let pixels: Vec<Vec<Rgb<u8>>> = pixels
+            .chunks_exact(image.width() as usize)
+            .map(|chunk| {
+                chunk
+                    .to_vec()
+                    .iter()
+                    .cloned()
+                    .collect()
+            })
+            .collect();
+
+        let mut body: Vec<Lexeme> = Vec::new();
+
+
+        let init_x = tile.x;
+        while tile.y < image.height() as usize {
+            tile.x = init_x;
+            while tile.x < image.width() as usize {
+                'tile: for x in 0..tile.width as usize {
+                    if x + tile.x >= image.width() as usize {
+                        break;
+                    }
+
+                    for y in 0..tile.height as usize {
+                        if y + tile.y >= image.height() as usize {
+                            break;
+                        }
+
+                        let increase = f(x, y);
+                        tile.x += increase.0;
+                        tile.y += increase.1;
+
+                        break 'tile;
+                    }
+                }
+                tile.x += tile.width as usize;
             }
+            tile.x += tile.height as usize;
         }
+
+        body
     }
 
     // will save a pixels in a tile as an image
@@ -154,7 +196,6 @@ struct Key {
     variables: Vec<KeyData>,    // variables symbols (like names) that have been defined in source files
 
     // not a token
-    ignore: Vec<Scope>,    // a colour to ignore
     background: Rgb<u8>,        // background colour of the image
     grid: Rgb<u8>               // grid colour for the key file
 }
@@ -172,7 +213,6 @@ impl Key {
             line_break: KeyData::new(),
             variables: Vec::new(),
 
-            ignore: Vec::new(),
             background: Rgb([0, 0, 0]),
             grid: Rgb([0, 0, 0])
         }
@@ -500,11 +540,10 @@ impl Lexer {
                 continue
             }
 
-            if let Some(_) = ignore.get(&colour) {
-                continue;
-            }
-            ignore.insert(colour, true);
-
+            match ignore.get(&colour) {
+                Some(_) => continue,
+                None => ignore.insert(colour, true)
+            };
 
             max_height = self.key
                 .data_from_colour(colour)
@@ -516,6 +555,31 @@ impl Lexer {
         }
 
         max_height
+    }
+
+    // TODO: panics when variables are referenced with rectangular symbols/names
+    fn analyse_scope(&self, scope: Scope, image: &image::DynamicImage) -> Vec<Lexeme> {
+        let mut line: Vec<Lexeme> = Vec::new();
+        line.push(Lexeme::Token(Token::ScopeStart));
+
+        // let curr_scope = self.key.ignore.last();
+        // if pixels[y][x] == match curr_scope {
+        //     None => self.key.background,
+        //     Some(s) => s.colour
+        // } {
+        //     continue;
+        // }
+
+        // if let Some(tile) = curr_scope {
+        //     if !Tile::overlapping(&tile.tile, &Tile {x: 0, y, width: image.width(), height: 0}) {
+        //         line.push(Lexeme::Token(Token::ScopeEnd));
+        //         self.key.ignore.pop();
+        //     }
+        // }
+
+
+
+        line
     }
 
     // tokenizes a line of keys
@@ -535,24 +599,11 @@ impl Lexer {
 
         // TODO: maybe instead of ignore we just skip over the width of the token when analysed
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
-        let mut scope = Vec::new();
 
         // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
             for y in size.y.max(size.height as usize) - size.height as usize .. (size.y + size.height as usize).min(image.height() as usize) {
-
-                // TODO: find better way to do this
-                // pushes all the scopes that are in a temp buffer to the real one
-                // for rust safety
-                if let Some(s) = scope.pop() {
-                    self.key.ignore.push(s);
-                }
-
-                let curr_scope = self.key.ignore.last();
-                if pixels[y][x] == match curr_scope {
-                    None => self.key.background,
-                    Some(s) => s.colour
-                } {
+                if pixels[y][x] == self.key.background {
                     continue;
                 }
 
@@ -563,7 +614,7 @@ impl Lexer {
                     }
                 }
 
-                // read variable symbols if Access token was before
+                // read variable decleration, expected after an Access token
                 if matches!(line.last(), Some(lexeme)
                             if matches!(lexeme, Lexeme::Token(token)
                                         if *token == Token::Access)) {
@@ -578,31 +629,17 @@ impl Lexer {
                         );
                 }
 
-                // TODO: how to handle end of scope?
-                //       code can be out side the scope x wise but then we can return into the same scope on the next line?
-                if let Some(tile) = curr_scope {
-                    // let test = Tile::overlapping(&tile.tile, &Tile {x: 0, y, width: image.width(), height: 0});
-                    // println!("{:?} vs {:?} ({test})", tile.tile, Tile {x: 0, y, width: image.width(), height: 0});
-                    if !Tile::overlapping(&tile.tile, &Tile {x: 0, y, width: image.width(), height: 0}) {
-                        line.push(Lexeme::Token(Token::ScopeEnd));
-                        self.key.ignore.pop();
-                    }
-                }
-
                 let keys = self.key.data_from_colour(pixels[y][x]);
 
                 // if the pixel is unknown then it could be a scope
-                // TODO: panics when variables are referenced with rectangular symbols/names
                 if keys.is_empty() {
-                    let rect = self.detect_rectangle((x, y), image);
+                    let scope = self.detect_rectangle((x, y), image);
                     // rectangle is big enough to be a scope
-                    if rect.width > 64 && rect.height > 64 {
-                        // TODO: check for ScopeEnd and push it?
-                        line.push(Lexeme::Token(Token::ScopeStart));
-                        scope.push(Scope {
-                            colour: pixels[y][x],
-                            tile: rect
-                        });
+                    if scope.width > 64 && scope.height > 64 {
+                        // self.analyse_scope(Scope {
+                        //     colour: pixels[y][x],
+                        //     tile: scope
+                        // }, image);
                     }
                 }
 
@@ -622,6 +659,7 @@ impl Lexer {
                             _ => Lexeme::Token(key.token)
                         });
 
+                        // line ends if line break, scope edge,
                         if key.token == Token::LineBreak {
                             size.width = (x - size.x) as u32 + key.width_right as u32;
                             break 'img;
@@ -666,38 +704,50 @@ impl Lexer {
             height: possible_line_size.1 as u32
         };
 
-        // basically a custom windows() over the image in "frames"
-        while frame.y < image.height() as usize {    // how many frames can fit on y
-            frame.x = 0;
-            while frame.x < image.width() as usize {  // how many frames can fit on x
-                // check for anything in side the frame
-                'frame: for x in 0..frame.width as usize {
-                    if x + frame.x >= image.width() as usize {
-                        break;
-                    }
-
-                    for y in 0..frame.height as usize {
-                        if y + frame.y >= image.height() as usize {
-                            break;
-                        }
-
-                        if pixels[y + frame.y][x + frame.x] == self.key.background /* || *pixel == self.key.ignore */ {
-                            continue;
-                        }
-
-                        let mut line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), image);
-                        frame.x += line.1.width as usize - 1;
-                        frame.y += line.1.height as usize;
-
-                        self.tokens.append(&mut line.0);
-
-                        break 'frame;
-                    }
-                }
-                frame.x += frame.width as usize;
+        frame.tiles(|x, y| {
+            if pixels[y + frame.y][x + frame.x] == self.key.background {
+                // continue;
             }
-            frame.y += frame.height as usize;
-        }
+
+            let line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), image);
+            // self.tokens.append(&mut line.0);
+
+            (line.1.width as usize - 1,
+            line.1.height as usize,
+            line.0)
+        }, image);
+
+        // while frame.y < image.height() as usize {    // how many frames can fit on y
+        //     frame.x = 0;
+        //     while frame.x < image.width() as usize {  // how many frames can fit on x
+        //         // check for anything in side the frame
+        //         'frame: for x in 0..frame.width as usize {
+        //             if x + frame.x >= image.width() as usize {
+        //                 break;
+        //             }
+        //
+        //             for y in 0..frame.height as usize {
+        //                 if y + frame.y >= image.height() as usize {
+        //                     break;
+        //                 }
+        //
+        //                 if pixels[y + frame.y][x + frame.x] == self.key.background {
+        //                     continue;
+        //                 }
+        //
+        //                 let mut line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), image);
+        //                 frame.x += line.1.width as usize - 1;
+        //                 frame.y += line.1.height as usize;
+        //
+        //                 self.tokens.append(&mut line.0);
+        //
+        //                 break 'frame;
+        //             }
+        //         }
+        //         frame.x += frame.width as usize;
+        //     }
+        //     frame.y += frame.height as usize;
+        // }
     }
 }
 
@@ -711,7 +761,6 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
 
     lex.analyse(&source_img);
     println!("Finished tokenizing");
-    println!("\n{:?}\n", lex.key.ignore);
 
     Ok(lex.tokens)
 }
