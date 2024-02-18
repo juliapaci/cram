@@ -53,58 +53,6 @@ impl Tile {
     }
 
 
-    // like a custom .windows() over the image
-    // TODO: make better name
-    // F takes x, y and returns values to increase tile.x, tile.y & to append to tokens
-    fn tiles
-        <F: Fn(usize, usize) -> (usize, usize, Vec<Lexeme>)>
-        (self, f: F, image: &image::DynamicImage) -> Vec<Lexeme>
-    {
-        let mut tile = self;
-        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
-        let pixels: Vec<Vec<Rgb<u8>>> = pixels
-            .chunks_exact(image.width() as usize)
-            .map(|chunk| {
-                chunk
-                    .to_vec()
-                    .iter()
-                    .cloned()
-                    .collect()
-            })
-            .collect();
-
-        let mut body: Vec<Lexeme> = Vec::new();
-
-
-        let init_x = tile.x;
-        while tile.y < image.height() as usize {
-            tile.x = init_x;
-            while tile.x < image.width() as usize {
-                'tile: for x in 0..tile.width as usize {
-                    if x + tile.x >= image.width() as usize {
-                        break;
-                    }
-
-                    for y in 0..tile.height as usize {
-                        if y + tile.y >= image.height() as usize {
-                            break;
-                        }
-
-                        let increase = f(x, y);
-                        tile.x += increase.0;
-                        tile.y += increase.1;
-
-                        break 'tile;
-                    }
-                }
-                tile.x += tile.width as usize;
-            }
-            tile.x += tile.height as usize;
-        }
-
-        body
-    }
-
     // will save a pixels in a tile as an image
     #[allow(dead_code)] // debug function
     fn save_tile(&self, name: String, source: &image::DynamicImage) -> Result<(), image::ImageError> {
@@ -557,34 +505,76 @@ impl Lexer {
         max_height
     }
 
+    // TODO: should multiple analysis functions change self.tokens
+    //       or should they each return Vec<Lexeme> to concantenate together in one place?
     // TODO: panics when variables are referenced with rectangular symbols/names
-    fn analyse_scope(&self, scope: Scope, image: &image::DynamicImage) -> Vec<Lexeme> {
-        let mut line: Vec<Lexeme> = Vec::new();
-        line.push(Lexeme::Token(Token::ScopeStart));
+    // TODO: duplicates tokens inside scope outside?
+    // TODO: doesnt push ScopeEnd token if scope is empty
+    // tokenizes a scope
+    fn analyse_scope(&mut self, scope: &Scope, image: &image::DynamicImage) {
+        // TODO: keep pixels as a struct member so we dont always have to recompute it.
+        //       issue is theres multiple forms of pixel data e.g. array, matrix, "chunks"
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+        let pixels: Vec<Vec<Rgb<u8>>> = pixels
+            .chunks_exact(image.width() as usize)
+            .map(|chunk| {
+                chunk
+                    .to_vec()
+                    .iter()
+                    .cloned()
+                    .collect()
+            })
+            .collect();
 
-        // let curr_scope = self.key.ignore.last();
-        // if pixels[y][x] == match curr_scope {
-        //     None => self.key.background,
-        //     Some(s) => s.colour
-        // } {
-        //     continue;
-        // }
+        self.tokens.push(Lexeme::Token(Token::ScopeStart));
 
-        // if let Some(tile) = curr_scope {
-        //     if !Tile::overlapping(&tile.tile, &Tile {x: 0, y, width: image.width(), height: 0}) {
-        //         line.push(Lexeme::Token(Token::ScopeEnd));
-        //         self.key.ignore.pop();
-        //     }
-        // }
+        let possible_line_size = self.key.get_largest();
+        let mut frame = Tile {
+            x: scope.tile.x,
+            y: scope.tile.y,
+            width: possible_line_size.0 as u32,
+            height: possible_line_size.1 as u32
+        };
 
+        let init_x = scope.tile.x;
+        // see analyse() for details
+        while frame.y < scope.tile.y + scope.tile.height as usize {
+            frame.x = init_x;
+            while frame.x < scope.tile.x + scope.tile.width as usize {
+                'frame: for x in 0..frame.width as usize {
+                    if x + frame.x >= image.width() as usize {
+                        break;
+                    }
 
+                    for y in 0..frame.height as usize {
+                        if y + frame.y >= image.height() as usize {
+                            break;
+                        }
 
-        line
+                        if pixels[y + frame.y][x + frame.x] == scope.colour {
+                            continue;
+                        }
+
+                        let mut line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), scope.colour, image);
+                        frame.x += line.1.width as usize - 1;
+                        frame.y += line.1.height as usize;
+
+                        self.tokens.append(&mut line.0);
+
+                        break 'frame;
+                    }
+                }
+                frame.x += frame.width as usize;
+            }
+            frame.y += frame.height as usize;
+        }
+
+        self.tokens.push(Lexeme::Token(Token::ScopeEnd));
     }
 
     // tokenizes a line of keys
     // returns the tokens and size of line
-    fn analyse_line(&mut self, begin: usize, image: &image::DynamicImage) -> (Vec<Lexeme>, Tile) {
+    fn analyse_line(&mut self, begin: usize, background: Rgb<u8>,  image: &image::DynamicImage) -> (Vec<Lexeme>, Tile) {
         let mut size = Tile::from_1d(begin, image.width(), self.line_height(begin, image) as u32, image);  // size of line
         size.width -= size.x as u32;
         if size.height == 0 {
@@ -596,14 +586,13 @@ impl Lexer {
         let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
 
         let mut line: Vec<Lexeme> = Vec::new(); // token buffer
-
         // TODO: maybe instead of ignore we just skip over the width of the token when analysed
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
 
         // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
             for y in size.y.max(size.height as usize) - size.height as usize .. (size.y + size.height as usize).min(image.height() as usize) {
-                if pixels[y][x] == self.key.background {
+                if pixels[y][x] == background {
                     continue;
                 }
 
@@ -629,22 +618,22 @@ impl Lexer {
                         );
                 }
 
-                let keys = self.key.data_from_colour(pixels[y][x]);
-
                 // if the pixel is unknown then it could be a scope
-                if keys.is_empty() {
+                if self.key.data_from_colour(pixels[y][x]).is_empty() {
                     let scope = self.detect_rectangle((x, y), image);
                     // rectangle is big enough to be a scope
                     if scope.width > 64 && scope.height > 64 {
-                        // self.analyse_scope(Scope {
-                        //     colour: pixels[y][x],
-                        //     tile: scope
-                        // }, image);
+                        self.analyse_scope(&Scope {
+                            colour: pixels[y][x],
+                            tile: scope
+                        }, image);
+
+                        ignore.insert(pixels[y][x], scope);
                     }
                 }
 
                 // checking if a key matches pixels in a tile
-                for key in keys {
+                for key in self.key.data_from_colour(pixels[y][x]) {
                     let tile = Tile {
                         x,
                         y: y.max(key.height_up as usize) - key.height_up as usize,
@@ -704,50 +693,37 @@ impl Lexer {
             height: possible_line_size.1 as u32
         };
 
-        frame.tiles(|x, y| {
-            if pixels[y + frame.y][x + frame.x] == self.key.background {
-                // continue;
+        while frame.y < image.height() as usize {    // how many frames can fit on y
+            frame.x = 0;
+            while frame.x < image.width() as usize {  // how many frames can fit on x
+                // check for anything in side the frame
+                'frame: for x in 0..frame.width as usize {
+                    if x + frame.x >= image.width() as usize {
+                        break;
+                    }
+
+                    for y in 0..frame.height as usize {
+                        if y + frame.y >= image.height() as usize {
+                            break;
+                        }
+
+                        if pixels[y + frame.y][x + frame.x] == self.key.background {
+                            continue;
+                        }
+
+                        let mut line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), self.key.background, image);
+                        frame.x += line.1.width as usize - 1;
+                        frame.y += line.1.height as usize;
+
+                        self.tokens.append(&mut line.0);
+
+                        break 'frame;
+                    }
+                }
+                frame.x += frame.width as usize;
             }
-
-            let line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), image);
-            // self.tokens.append(&mut line.0);
-
-            (line.1.width as usize - 1,
-            line.1.height as usize,
-            line.0)
-        }, image);
-
-        // while frame.y < image.height() as usize {    // how many frames can fit on y
-        //     frame.x = 0;
-        //     while frame.x < image.width() as usize {  // how many frames can fit on x
-        //         // check for anything in side the frame
-        //         'frame: for x in 0..frame.width as usize {
-        //             if x + frame.x >= image.width() as usize {
-        //                 break;
-        //             }
-        //
-        //             for y in 0..frame.height as usize {
-        //                 if y + frame.y >= image.height() as usize {
-        //                     break;
-        //                 }
-        //
-        //                 if pixels[y + frame.y][x + frame.x] == self.key.background {
-        //                     continue;
-        //                 }
-        //
-        //                 let mut line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), image);
-        //                 frame.x += line.1.width as usize - 1;
-        //                 frame.y += line.1.height as usize;
-        //
-        //                 self.tokens.append(&mut line.0);
-        //
-        //                 break 'frame;
-        //             }
-        //         }
-        //         frame.x += frame.width as usize;
-        //     }
-        //     frame.y += frame.height as usize;
-        // }
+            frame.y += frame.height as usize;
+        }
     }
 }
 
@@ -947,7 +923,7 @@ mod tests {
         let mut setup = LexerSetup::new();
 
         // TODO: gotta fix this test to be actual dimensions but rn analyse_line() is giving back in accurate size so well just test against that until i fix it. (see analyse_line() TODOs)
-        let test = setup.lexer.analyse_line(1128, &setup.img); // 1128 is first pixel of a key
+        let test = setup.lexer.analyse_line(1128, setup.lexer.key.background, &setup.img); // 1128 is first pixel of a key
         let expected = (vec![Lexeme::Token(Token::Quote), Lexeme::Token(Token::LineBreak)],
                         Tile {
                             x: 28,
