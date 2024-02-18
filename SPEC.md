@@ -10,8 +10,8 @@ heres kinda what i want to achieve:
 
 # Language
 
-Cram aims to avoid font processing as a way to interpret image data \
-i.e. cram disallows reading characters by comparing bitmaps of fonts and tiles \
+Cram aims to avoid font processing as a way to interpret image data             \
+i.e. cram disallows reading characters by comparing bitmaps of fonts and tiles  \
 because of this, Tokens do not contain a value.
 
 # Files
@@ -43,7 +43,6 @@ a few quirks of key files currently:
 - a keys colour is denoted by the first non ignored (not background or grid) colour in the tile
     - the KeyData of the key is not effected because something like the amount takes into account all non ignored pixels
     - the lexing is effected by this because it counts the amount of specific coloured pixels in a tile, therefore no match will be found for multi coloured keys
-
 ### order
 
 The order of the keys, wrapping left to right, is as follows:
@@ -76,7 +75,8 @@ variables a declared using the Access key paired with the variables symbol (like
 variables are referenced by their symbols
 
 ### scopes
-scopes are denoted by a solid rectangle with a background colour that differs from the regular background   \
-these initial definitions expect either params/return values for functions, conditions for loops, etc.      \
-a scope body is defined by any tokens which are in the foreground of the scopes background                  \
-a function can be called by drawing an empty 64x64 tile of a scopes body                                    \
+
+scopes are denoted by a solid rectangle with a background colour that differs from the regular background       \
+these initial definitions expect either params/return values for functions, conditions for loops, etc.          \
+
+scopes are lexed homogeneously so side-by-side code delimited by a line break will be pushed after the scope    \
