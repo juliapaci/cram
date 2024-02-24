@@ -466,8 +466,8 @@ impl Lexer {
 
     // return the height of the line
     // its just the tallest key that intersects a ray from the first keys middle row
-    // NOTE: does not take into account BreakLines
-    fn line_height(&self, begin: usize, image: &image::DynamicImage) -> u8 {
+    // NOTE: does not take into account LineBreaks
+    fn line_height(&self, begin: usize, background: Rgb<u8>, image: &image::DynamicImage) -> u8 {
         // unwrapping is fine since there is always atleast one element when this function is called
         let first = self.key.data_from_token(self.consume_first(begin, image));
         let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
@@ -484,7 +484,7 @@ impl Lexer {
             //       cons: slower + more accurate tokenization
 
             let colour = pixels[i + middle_row as usize];
-            if colour == self.key.background {
+            if colour == background {
                 continue
             }
 
@@ -508,8 +508,8 @@ impl Lexer {
     // TODO: should multiple analysis functions change self.tokens
     //       or should they each return Vec<Lexeme> to concantenate together in one place?
     // TODO: panics when variables are referenced with rectangular symbols/names
-    // TODO: duplicates tokens inside scope outside?
-    // TODO: doesnt push ScopeEnd token if scope is empty
+    // TODO: sometimes doesnt push ScopeEnd token if scope
+    // TODO: dont duplicate code in analyse(), make a generic loop with a higher order function or something
     // tokenizes a scope
     fn analyse_scope(&mut self, scope: &Scope, image: &image::DynamicImage) {
         // TODO: keep pixels as a struct member so we dont always have to recompute it.
@@ -555,7 +555,12 @@ impl Lexer {
                             continue;
                         }
 
-                        let mut line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), scope.colour, image);
+                        let mut line = self.analyse_line(&mut Tile {
+                            x: x + frame.x,
+                            y: y + frame.y,
+                            width: scope.tile.width,
+                            height: scope.tile.height
+                        }, scope.colour, image);
                         frame.x += line.1.width as usize - 1;
                         frame.y += line.1.height as usize;
 
@@ -574,9 +579,14 @@ impl Lexer {
 
     // tokenizes a line of keys
     // returns the tokens and size of line
-    fn analyse_line(&mut self, begin: usize, background: Rgb<u8>,  image: &image::DynamicImage) -> (Vec<Lexeme>, Tile) {
-        let mut size = Tile::from_1d(begin, image.width(), self.line_height(begin, image) as u32, image);  // size of line
-        size.width -= size.x as u32;
+    fn analyse_line(
+        &mut self,
+        bounds: &Tile,
+        background: Rgb<u8>,
+        image: &image::DynamicImage
+    ) -> (Vec<Lexeme>, Tile) {
+        let mut size = bounds.clone();
+        size.height = self.line_height(size.x + size.y * image.width() as usize, background, image) as u32;
         if size.height == 0 {
             return (Vec::new(), size);
         }
@@ -591,7 +601,7 @@ impl Lexer {
 
         // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
-            for y in size.y.max(size.height as usize) - size.height as usize .. (size.y + size.height as usize).min(image.height() as usize) {
+            for y in size.y .. (size.y + size.height as usize).min(image.height() as usize) {
                 if pixels[y][x] == background {
                     continue;
                 }
@@ -629,6 +639,7 @@ impl Lexer {
                         }, image);
 
                         ignore.insert(pixels[y][x], scope);
+                        continue;
                     }
                 }
 
@@ -711,7 +722,12 @@ impl Lexer {
                             continue;
                         }
 
-                        let mut line = self.analyse_line((y + frame.y)*image.width() as usize + (x + frame.x), self.key.background, image);
+                        let mut line = self.analyse_line(&mut Tile {
+                            x: x + frame.x,
+                            y: y + frame.y,
+                            width: image.width(),
+                            height: image.height()
+                        }, self.key.background, image);
                         frame.x += line.1.width as usize - 1;
                         frame.y += line.1.height as usize;
 
@@ -912,7 +928,7 @@ mod tests {
     fn lexer_line_height() {
         let setup = LexerSetup::new();
 
-        let test = setup.lexer.line_height(23, &setup.img);
+        let test = setup.lexer.line_height(23, setup.lexer.key.background, &setup.img);
         let expected = 12;
 
         assert_eq!(test, expected);
@@ -922,15 +938,22 @@ mod tests {
     fn lexer_analyse_line() {
         let mut setup = LexerSetup::new();
 
-        // TODO: gotta fix this test to be actual dimensions but rn analyse_line() is giving back in accurate size so well just test against that until i fix it. (see analyse_line() TODOs)
-        let test = setup.lexer.analyse_line(1128, setup.lexer.key.background, &setup.img); // 1128 is first pixel of a key
-        let expected = (vec![Lexeme::Token(Token::Quote), Lexeme::Token(Token::LineBreak)],
-                        Tile {
-                            x: 28,
-                            y: 11,
-                            width: 72,
-                            height: 12
-                        });
+        // TODO: gotta fix this test to be actual dimensions but rn analyse_line() is giving back inaccurate size so well just test against that until i fix it. (see analyse_line() TODOs)
+        let test = setup.lexer.analyse_line(&mut Tile {
+            x: 28,
+            y: 11,
+            width: setup.key.width(),
+            height: setup.key.height()
+        }, setup.lexer.key.background, &setup.key);
+        let expected = (
+            vec![Lexeme::Token(Token::Quote), Lexeme::Token(Token::LineBreak)],
+            Tile {
+                x: 28,
+                y: 11,
+                width: 72,
+                height: 12
+            }
+        );
 
         assert_eq!(test, expected);
     }
@@ -945,4 +968,6 @@ mod tests {
 
         assert_eq!(test, expected);
     }
+
+    // TODO: test for analyse_scope
 }
