@@ -508,7 +508,6 @@ impl Lexer {
     // TODO: should multiple analysis functions change self.tokens
     //       or should they each return Vec<Lexeme> to concantenate together in one place?
     // TODO: panics when variables are referenced with rectangular symbols/names
-    // TODO: sometimes doesnt push ScopeEnd token if scope
     // TODO: dont duplicate code in analyse(), make a generic loop with a higher order function or something
     // tokenizes a scope
     fn analyse_scope(&mut self, scope: &Scope, image: &image::DynamicImage) {
@@ -536,6 +535,7 @@ impl Lexer {
             height: possible_line_size.1 as u32
         };
 
+        println!("{:?}", frame);
         let init_x = scope.tile.x;
         // see analyse() for details
         while frame.y < scope.tile.y + scope.tile.height as usize {
@@ -935,6 +935,31 @@ mod tests {
     }
 
     #[test]
+    fn lexer_analyse_scope() {
+        let mut setup = LexerSetup::new();
+        setup.img = ImageReader::open("test/scope.png").unwrap().decode().unwrap();
+
+        setup.lexer.analyse_scope(&Scope {
+            colour: Rgb([0, 63, 35]),
+            tile: Tile {
+                x: 38,
+                y: 34,
+                width: 125,
+                height: 126
+            }
+        }, &setup.img);
+        let test = setup.lexer.tokens;
+        let expected = vec![
+            Lexeme::Token(Token::ScopeStart),
+            Lexeme::Token(Token::Decrement), Lexeme::Token(Token::Quote), Lexeme::Token(Token::Quote), Lexeme::Token(Token::LineBreak),
+            Lexeme::Token(Token::Repeat), Lexeme::Token(Token::Decrement), Lexeme::Token(Token::LineBreak),
+            Lexeme::Token(Token::ScopeEnd)
+        ];
+
+        assert_eq!(test, expected);
+    }
+
+    #[test]
     fn lexer_analyse_line() {
         let mut setup = LexerSetup::new();
 
@@ -942,15 +967,15 @@ mod tests {
         let test = setup.lexer.analyse_line(&mut Tile {
             x: 28,
             y: 11,
-            width: setup.key.width(),
-            height: setup.key.height()
-        }, setup.lexer.key.background, &setup.key);
+            width: setup.img.width(),
+            height: setup.img.height()
+        }, setup.lexer.key.background, &setup.img);
         let expected = (
             vec![Lexeme::Token(Token::Quote), Lexeme::Token(Token::LineBreak)],
             Tile {
                 x: 28,
                 y: 11,
-                width: 72,
+                width: setup.img.height(),
                 height: 12
             }
         );
@@ -968,6 +993,4 @@ mod tests {
 
         assert_eq!(test, expected);
     }
-
-    // TODO: test for analyse_scope
 }
