@@ -438,6 +438,8 @@ impl Lexer {
     // returns the first keys token from a 1d index onwards
     // TODO: wont get the first, will get the heighest
     // TODO: optimise this with ignore map
+    // TODO: refactor to use Tile and consume first in one area
+    // TODO: rename since this isnt consuming anything
     fn consume_first(&self, begin: usize, image: &image::DynamicImage) -> Token {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         for i in begin..image.width() as usize * image.height() as usize {
@@ -467,18 +469,22 @@ impl Lexer {
     // return the height of the line
     // its just the tallest key that intersects a ray from the first keys middle row
     // NOTE: does not take into account LineBreaks
-    fn line_height(&self, begin: usize, background: Rgb<u8>, image: &image::DynamicImage) -> u8 {
+    // TODO: refactor to use Tiles because line_height in scopes
+    fn line_height(
+        //     begin: (x    , y)
+        &self, begin: (usize, usize), background: Rgb<u8>, image: &image::DynamicImage
+    ) -> u8 {
         // unwrapping is fine since there is always atleast one element when this function is called
-        let first = self.key.data_from_token(self.consume_first(begin, image));
+        let first = self.key.data_from_token(self.consume_first(begin.0 + begin.1 * image.width() as usize, image));
         let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut max_height: u8 = first.height_up + first.height_down;
 
         // index of middle row of key
         // beginning y + half key height
-        let middle_row = (begin as u32/image.width() + (max_height/2) as u32) * image.width();
+        let middle_row = (begin.1 + (max_height/2) as usize) as u32 * image.width();
 
-        for i in begin%image.width() as usize..image.width() as usize {
+        for i in begin.0..image.width() as usize {
             // TODO: see if we should check if the key exists instead of just relying on one pixel
             //       pros: more accurate line height + possibly faster tokenization
             //       cons: slower + more accurate tokenization
@@ -510,6 +516,7 @@ impl Lexer {
     // TODO: panics when variables are referenced with rectangular symbols/names
     // TODO: dont duplicate code in analyse(), make a generic loop with a higher order function or something
     // tokenizes a scope
+    // TODO: this is so slow please optimise
     fn analyse_scope(&mut self, scope: &Scope, image: &image::DynamicImage) {
         // TODO: keep pixels as a struct member so we dont always have to recompute it.
         //       issue is theres multiple forms of pixel data e.g. array, matrix, "chunks"
@@ -535,9 +542,8 @@ impl Lexer {
             height: possible_line_size.1 as u32
         };
 
-        println!("{:?}", frame);
         let init_x = scope.tile.x;
-        // see analyse() for details
+        // see self.analyse() for details
         while frame.y < scope.tile.y + scope.tile.height as usize {
             frame.x = init_x;
             while frame.x < scope.tile.x + scope.tile.width as usize {
@@ -586,28 +592,26 @@ impl Lexer {
         image: &image::DynamicImage
     ) -> (Vec<Lexeme>, Tile) {
         let mut size = bounds.clone();
-        size.height = self.line_height(size.x + size.y * image.width() as usize, background, image) as u32;
+        size.height = self.line_height((size.x, size.y), background, image) as u32;
         if size.height == 0 {
             return (Vec::new(), size);
         }
-
-        // faster to do this or to use get_pixel()?
-        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
-        let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
 
         let mut line: Vec<Lexeme> = Vec::new(); // token buffer
         // TODO: maybe instead of ignore we just skip over the width of the token when analysed
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
 
-        // TODO: optimise line height to perfectly fit everything (right now it larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
+        // TODO: optimise line height to perfectly fit everything (right now its larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
             for y in size.y .. (size.y + size.height as usize).min(image.height() as usize) {
-                if pixels[y][x] == background {
+                let pixel = image.get_pixel(x as u32, y as u32).to_rgb();
+
+                if pixel == background {
                     continue;
                 }
 
                 // checking if where in an area thats already been checked
-                if let Some(tile) = ignore.get(&pixels[y][x]) {
+                if let Some(tile) = ignore.get(&pixel) {
                     if Tile::overlapping(&Tile {x, y, width: 0, height: 0}, tile) {
                         continue;
                     }
@@ -629,22 +633,22 @@ impl Lexer {
                 }
 
                 // if the pixel is unknown then it could be a scope
-                if self.key.data_from_colour(pixels[y][x]).is_empty() {
+                if self.key.data_from_colour(pixel).is_empty() {
                     let scope = self.detect_rectangle((x, y), image);
                     // rectangle is big enough to be a scope
                     if scope.width > 64 && scope.height > 64 {
                         self.analyse_scope(&Scope {
-                            colour: pixels[y][x],
+                            colour: pixel,
                             tile: scope
                         }, image);
 
-                        ignore.insert(pixels[y][x], scope);
+                        ignore.insert(pixel, scope);
                         continue;
                     }
                 }
 
                 // checking if a key matches pixels in a tile
-                for key in self.key.data_from_colour(pixels[y][x]) {
+                for key in self.key.data_from_colour(pixel) {
                     let tile = Tile {
                         x,
                         y: y.max(key.height_up as usize) - key.height_up as usize,
@@ -653,7 +657,7 @@ impl Lexer {
                     };
 
                     // if the tile matches a key
-                    if tile.compute_tile(pixels[y][x], image) == key.amount {
+                    if tile.compute_tile(pixel, image) == key.amount {
                         line.push(match key.token {
                             Token::Variable => Lexeme::Identifier(self.key.variables.iter().position(|v| v == key).unwrap()),
                             _ => Lexeme::Token(key.token)
@@ -667,7 +671,7 @@ impl Lexer {
                     }
 
                     // marks this area as already checked
-                    ignore.insert(pixels[y][x], tile);
+                    ignore.insert(pixel, tile);
                 }
             }
         }
@@ -704,9 +708,9 @@ impl Lexer {
             height: possible_line_size.1 as u32
         };
 
-        while frame.y < image.height() as usize {    // how many frames can fit on y
+        while frame.y < image.height() as usize {       // how many frames can fit on y
             frame.x = 0;
-            while frame.x < image.width() as usize {  // how many frames can fit on x
+            while frame.x < image.width() as usize {    // how many frames can fit on x
                 // check for anything in side the frame
                 'frame: for x in 0..frame.width as usize {
                     if x + frame.x >= image.width() as usize {
@@ -928,7 +932,7 @@ mod tests {
     fn lexer_line_height() {
         let setup = LexerSetup::new();
 
-        let test = setup.lexer.line_height(23, setup.lexer.key.background, &setup.img);
+        let test = setup.lexer.line_height((23, 0), setup.lexer.key.background, &setup.img);
         let expected = 12;
 
         assert_eq!(test, expected);
