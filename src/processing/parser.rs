@@ -17,9 +17,20 @@ pub mod node {
         pub value: isize
     }
 
-    #[derive(Debug)]
-    pub struct Loop {
-        pub condition: Expression,   // condition to continue if not zero
+    // scopes
+    #[derive(Debug, Default)]
+    pub enum ScopeType {
+        Function,
+        If,
+        Loop,
+        #[default]
+        Local
+    }
+
+    #[derive(Debug, Default)]
+    pub struct Scope {
+        pub kind: ScopeType,
+        pub condition: Option<Expression>,
         pub body: Program
     }
 }
@@ -48,12 +59,7 @@ impl Parser {
 
     fn parse_expr(&mut self) -> Option<node::Expression> {
         match self.tokens.front() {
-            Some(Lexeme::Token(token)) => {
-                if *token != Token::Zero  {
-                    return None
-                }
-                Some(node::Expression{value: self.eval_lit()})
-            }
+            Some(Lexeme::Token(Token::Zero)) => Some(node::Expression{value: self.eval_lit()}),
 
             // Lexeme::Identifier(id) =>
 
@@ -61,9 +67,25 @@ impl Parser {
         }
     }
 
-    // fn parse_loop(&mut self) -> Option<node::Loop> {
-    //
-    // }
+    fn parse_scope(&mut self) -> Option<node::Scope> {
+        let mut scope: node::Scope = Default::default();
+
+        scope.kind = match self.tokens.pop_front() {
+            Some(Lexeme::Token(Token::ScopeStart)) => {
+                let init = self.tokens.pop_front();
+
+                match init {
+                    Some(Lexeme::Token(Token::Access)) => node::ScopeType::Function,
+                    Some(Lexeme::Token(Token::Repeat)) => node::ScopeType::Loop,
+                    // TODO: if statement
+                    _ => return None
+                }
+            },
+            _ => return None
+        };
+
+        Some(scope)
+    }
 }
 
 pub fn parse(mut tokens: VecDeque<Lexeme>) -> Result<node::Program, String> {
@@ -82,8 +104,8 @@ pub fn parse(mut tokens: VecDeque<Lexeme>) -> Result<node::Program, String> {
                 Lexeme::Token(Token::Quote) => {}
                 Lexeme::Token(Token::LineBreak) => {}
                 Lexeme::Token(Token::Variable) => unreachable!(),
-                Lexeme::Token(Token::ScopeStart) => {}
-                Lexeme::Token(Token::ScopeEnd) => {}
+                Lexeme::Token(Token::ScopeStart) => parser.parse_scope()
+                Lexeme::Token(Token::ScopeEnd) => unreachable!(),
 
                 Lexeme::Identifier(id) => {}
             }

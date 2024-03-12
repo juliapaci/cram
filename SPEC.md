@@ -50,7 +50,7 @@ The order of the keys, wrapping left to right, is as follows:
 2. Increment    -   Increments an integer by 1
 3. Decrement    -   Decrements an integer by 1
 4. Access       -   Declares a variable
-5. Repeat       -
+5. Repeat       -   Conditionally repeat current scopes execution
 6. Quote        -   Interprets an integer as ASCII "printable characters"
 7. Line Break   -   Denotes the end of a line
 
@@ -76,7 +76,7 @@ variables are referenced by their symbols
 
 ### scopes
 
-scopes are denoted by a solid rectangle with a background colour that differs from the regular background       \
-these initial definitions expect either params/return values for functions, conditions for loops, etc.          \
+scopes are denoted by a solid rectangle with a background colour that differs from the regular background           \
+these initial definitions expect either params/return values for functions or conditions for loops/if statements    \
 
-scopes are lexed homogeneously so side-by-side code delimited by a line break will be pushed after the scope    \
+scopes are lexed homogeneously so side-by-side code delimited by a line break will be pushed after the scope

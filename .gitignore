@@ -1,5 +1,7 @@
 /target
 *.png
 perf*
+*.perf
 flamegraph.svg
 /out
+Cargo.lock
