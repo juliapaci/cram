@@ -1,7 +1,11 @@
 use image::io::Reader as ImageReader;
-use image::{GenericImage, Rgb, GenericImageView, Pixel};
+use image::{Rgb, GenericImageView, Pixel};
 
 use std::collections::HashMap;
+use std::path::Path;
+use std::fs;
+
+use sha256::try_digest;
 
 // TODO: refactor Key parsing to use this
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
@@ -136,11 +140,11 @@ struct Key {
     increment: KeyData,         // increment a value
     decrement: KeyData,         // decrement a value
     access: KeyData,            // access a memory address
-    repeat: KeyData,            // jump based on a condition
+    repeat: KeyData,            // conditional jump
 
     // language syntax
     quote: KeyData,             // for string literals
-    line_break: KeyData,        // denotes a line seperation of multiple lines on the same row
+    line_break: KeyData,        // seperates lines
     variables: Vec<KeyData>,    // variables symbols (like names) that have been defined in source files
 
     // not a token
@@ -164,6 +168,19 @@ impl Key {
             background: Rgb([0, 0, 0]),
             grid: Rgb([0, 0, 0])
         }
+    }
+
+    // data thats contained in the log file
+    // fn dump_log
+
+    fn write_log<P: AsRef<Path>>(path: P, checksum: String) -> std::io::Result<()> {
+        fs::write(path, checksum)?;
+        Ok(())
+    }
+
+    fn read_log<P: AsRef<Path>>(path: P) -> Result<String, Box<dyn std::error::Error>> {
+        let checksum = fs::read_to_string(path)?.parse()?;
+        Ok(checksum)
     }
 
     // TODO: dont hardcode the size & maybe use a macro or something or use serde
@@ -597,6 +614,10 @@ impl Lexer {
             return (Vec::new(), size);
         }
 
+        // faster to do this or to use get_pixel()?
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+        let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
+
         let mut line: Vec<Lexeme> = Vec::new(); // token buffer
         // TODO: maybe instead of ignore we just skip over the width of the token when analysed
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
@@ -604,14 +625,12 @@ impl Lexer {
         // TODO: optimise line height to perfectly fit everything (right now its larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
             for y in size.y .. (size.y + size.height as usize).min(image.height() as usize) {
-                let pixel = image.get_pixel(x as u32, y as u32).to_rgb();
-
-                if pixel == background {
+                if pixels[y][x] == background {
                     continue;
                 }
 
                 // checking if where in an area thats already been checked
-                if let Some(tile) = ignore.get(&pixel) {
+                if let Some(tile) = ignore.get(&pixels[y][x]) {
                     if Tile::overlapping(&Tile {x, y, width: 0, height: 0}, tile) {
                         continue;
                     }
@@ -633,22 +652,22 @@ impl Lexer {
                 }
 
                 // if the pixel is unknown then it could be a scope
-                if self.key.data_from_colour(pixel).is_empty() {
+                if self.key.data_from_colour(pixels[y][x]).is_empty() {
                     let scope = self.detect_rectangle((x, y), image);
                     // rectangle is big enough to be a scope
                     if scope.width > 64 && scope.height > 64 {
                         self.analyse_scope(&Scope {
-                            colour: pixel,
+                            colour: pixels[y][x],
                             tile: scope
                         }, image);
 
-                        ignore.insert(pixel, scope);
+                        ignore.insert(pixels[y][x], scope);
                         continue;
                     }
                 }
 
                 // checking if a key matches pixels in a tile
-                for key in self.key.data_from_colour(pixel) {
+                for key in self.key.data_from_colour(pixels[y][x]) {
                     let tile = Tile {
                         x,
                         y: y.max(key.height_up as usize) - key.height_up as usize,
@@ -657,7 +676,7 @@ impl Lexer {
                     };
 
                     // if the tile matches a key
-                    if tile.compute_tile(pixel, image) == key.amount {
+                    if tile.compute_tile(pixels[y][x], image) == key.amount {
                         line.push(match key.token {
                             Token::Variable => Lexeme::Identifier(self.key.variables.iter().position(|v| v == key).unwrap()),
                             _ => Lexeme::Token(key.token)
@@ -671,7 +690,7 @@ impl Lexer {
                     }
 
                     // marks this area as already checked
-                    ignore.insert(pixel, tile);
+                    ignore.insert(pixels[y][x], tile);
                 }
             }
         }
@@ -750,10 +769,19 @@ impl Lexer {
 pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::ImageError> {
     let key_img = ImageReader::open(key)?.with_guessed_format()?.decode()?;
     let source_img = ImageReader::open(source)?.with_guessed_format()?.decode()?;
-
     let mut lex = Lexer::new();
-    lex.key.read_keys(&key_img);
-    println!("Finished reading keys");
+
+    if let Ok(checksum) = Key::read_log("out/key.log") {
+        if let Ok(digest) = try_digest(key) {
+            if checksum != digest {
+                lex.key.read_keys(&key_img);
+                Key::write_log("out/key.log", digest).unwrap();
+                println!("Finished reading keys");
+            } else {
+
+            }
+        }
+    }
 
     lex.analyse(&source_img);
     println!("Finished tokenizing");
