@@ -16,9 +16,9 @@ fn main() {
         return;
     }
 
-    let tokens  = lexer::deserialize(&args[1], &args[2]).unwrap();
+    let tokens = lexer::deserialize(&args[1], &args[2]).unwrap();
     println!("{:?} ({})", tokens, tokens.len());
-    let program = parser::parse(tokens.into()).unwrap();
+    let program = parser::parse(&mut tokens.into()).unwrap();
     println!("{program:?}");
 
     let out_name = format!("out/{}", Path::new(&args[3]).file_stem().unwrap().to_str().unwrap());

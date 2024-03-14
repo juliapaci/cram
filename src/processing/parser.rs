@@ -7,7 +7,7 @@ pub mod node {
         pub statements: Vec<Statement>
     }
 
-    #[derive(Debug)]
+    #[derive(Default, Debug)]
     pub struct Statement {
         pub expressions: Vec<Expression>
     }
@@ -30,16 +30,16 @@ pub mod node {
     #[derive(Debug, Default)]
     pub struct Scope {
         pub kind: ScopeType,
-        pub condition: Option<Expression>,
+        pub condition: Option<Statement>,
         pub body: Program
     }
 }
 
-struct Parser {
-    tokens: VecDeque<Lexeme>
+struct Parser<'a> {
+    tokens: &'a mut VecDeque<Lexeme>
 }
 
-impl Parser {
+impl Parser<'_> {
     // used to evaluate integer literal expressions involving increment and decrement
     fn eval_lit(&mut self) -> isize {
         let mut value = Default::default();
@@ -67,6 +67,7 @@ impl Parser {
         }
     }
 
+    // TODO: return type Result with ScopeError type that can be error for condition, body, etc.
     fn parse_scope(&mut self) -> Option<node::Scope> {
         let mut scope: node::Scope = Default::default();
 
@@ -84,17 +85,19 @@ impl Parser {
             _ => return None
         };
 
+        scope.condition = self.parse_statement();
+
+        scope.body = parse(&mut self.tokens).unwrap(); // unwrap() is fine, Err isnt possible
+
         Some(scope)
     }
-}
 
-pub fn parse(mut tokens: VecDeque<Lexeme>) -> Result<node::Program, String> {
-    let mut parser = Parser {
-        tokens
-    };
-    let mut program: node::Program = Default::default();
+    // TODO: maybe a parse_line()
 
-    while let Some(lexeme) = parser.tokens.pop_front() {
+    fn parse_statement(&mut self) -> Option<node::Statement> {
+        let statement: node::Statement = Default::default();
+
+        while let Some(lexeme) = self.tokens.pop_front() {
             match lexeme {
                 Lexeme::Token(Token::Zero) => {}
                 Lexeme::Token(Token::Increment) => {}
@@ -102,13 +105,34 @@ pub fn parse(mut tokens: VecDeque<Lexeme>) -> Result<node::Program, String> {
                 Lexeme::Token(Token::Access) => {}
                 Lexeme::Token(Token::Repeat) => {}
                 Lexeme::Token(Token::Quote) => {}
-                Lexeme::Token(Token::LineBreak) => {}
                 Lexeme::Token(Token::Variable) => unreachable!(),
-                Lexeme::Token(Token::ScopeStart) => parser.parse_scope()
-                Lexeme::Token(Token::ScopeEnd) => unreachable!(),
+                Lexeme::Token(Token::ScopeStart) => {
+                    self.parse_scope();
+                },
 
                 Lexeme::Identifier(id) => {}
+
+                Lexeme::Token(Token::LineBreak) => {
+                    return Some(statement);
+                }
+                _ => unreachable!()
             }
+        }
+
+        None
+    }
+}
+
+pub fn parse(tokens: &mut VecDeque<Lexeme>) -> Result<node::Program, String> {
+    let mut parser = Parser {
+        tokens
+    };
+    let mut program: node::Program = Default::default();
+
+    let mut statement = parser.parse_statement();
+    while statement.is_some() {
+        program.statements.push(statement.unwrap());
+        statement = parser.parse_statement();
     }
 
     Ok(program)
