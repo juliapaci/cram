@@ -107,6 +107,15 @@ struct Scope {
     tile: Tile
 }
 
+// TODO: assign_keys!() instead to assign all of them with a vector of $keys but wihtout borrowing issues
+macro_rules! assign_key {
+    ($self: expr, $key: expr, $tile: expr, $id: expr) => {
+        // unsafe is fine since we are hardcoding the possible values of teken
+        $key = $self.outline_key(&$tile[$id], unsafe {std::mem::transmute($id as u8)})
+    };
+}
+
+
 // data for the tokens
 #[derive(Debug, PartialEq)]
 pub struct KeyData {
@@ -385,12 +394,6 @@ impl Key {
         }
     }
 
-    // returns the KeyData of the key in a tile
-    fn identify_key_data(&self, tile: &[[Rgb<u8>; 64]; 64], token: u8) -> KeyData {
-        // unsafe is fine since we are hardcoding the possible values of teken
-        self.outline_key(tile, unsafe {std::mem::transmute(token)})
-    }
-
     // read each 64x64 "tile" and apply the colour inside to the key structure
     fn read_keys(&mut self, image: &image::DynamicImage) {
         self.identify_background(image);
@@ -403,14 +406,13 @@ impl Key {
 
         // TODO: find better way of finding key grid colour like detect rectangles or something
         self.grid = tiles[0][0][0];
-        // TODO: better way of doing all these actions like macro or something?
-        self.zero       = self.identify_key_data(&tiles[0], 0);
-        self.increment  = self.identify_key_data(&tiles[1], 1);
-        self.decrement  = self.identify_key_data(&tiles[2], 2);
-        self.access     = self.identify_key_data(&tiles[3], 3);
-        self.repeat     = self.identify_key_data(&tiles[4], 4);
-        self.quote      = self.identify_key_data(&tiles[5], 5);
-        self.line_break = self.identify_key_data(&tiles[6], 6);
+        assign_key!(&self, self.zero, &tiles, 0);
+        assign_key!(&self, self.increment, &tiles, 1);
+        assign_key!(&self, self.decrement, &tiles, 2);
+        assign_key!(&self, self.access, &tiles, 3);
+        assign_key!(&self, self.repeat, &tiles, 4);
+        assign_key!(&self, self.quote, &tiles, 5);
+        assign_key!(&self, self.line_break, &tiles, 6);
     }
 }
 

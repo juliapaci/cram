@@ -109,6 +109,7 @@ impl Parser<'_> {
                 Lexeme::Token(Token::ScopeStart) => {
                     self.parse_scope();
                 },
+                Lexeme::Token(Token::ScopeEnd) => {},
 
                 Lexeme::Identifier(id) => {}
 

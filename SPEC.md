@@ -11,7 +11,8 @@ heres kinda what i want to achieve:
 # Language
 
 Cram aims to avoid font processing as a way to interpret image data             \
-i.e. cram disallows reading characters by comparing bitmaps of fonts and tiles  \
+i.e. cram disallows reading characters by comparing bitmaps of fonts and tiles
+(e.g. OCR)                                                                      \
 because of this, Tokens do not contain a value.
 
 # Files
