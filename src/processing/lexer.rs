@@ -4,6 +4,7 @@ use image::{Rgb, GenericImageView, Pixel};
 use std::collections::HashMap;
 use std::path::Path;
 use std::fs;
+use std::io::Write;
 
 use sha256::try_digest;
 
@@ -108,6 +109,7 @@ struct Scope {
 }
 
 // TODO: assign_keys!() instead to assign all of them with a vector of $keys but wihtout borrowing issues
+// TODO: find id another one (like serde or something) instead of a param
 macro_rules! assign_key {
     ($self: expr, $key: expr, $tile: expr, $id: expr) => {
         // unsafe is fine since we are hardcoding the possible values of teken
@@ -126,6 +128,19 @@ pub struct KeyData {
     height_up: u8,      // height of key from the first (leftmost) pixel upwards
     height_down: u8,    // height of key from the first (leftmost) pixel downwards
     amount: u32         // amount of non ignored (e.g. background, grid) pixels in key
+}
+
+impl std::fmt::Display for KeyData {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error>{
+        write!(f, "{:?}{}{}{}{}{}",
+               self.colour,
+               self.width_left,
+               self.width_right,
+               self.height_up,
+               self.height_down,
+               self.amount
+        )
+    }
 }
 
 impl KeyData {
@@ -182,8 +197,24 @@ impl Key {
     // data thats contained in the log file
     // fn dump_log
 
-    fn write_log<P: AsRef<Path>>(path: P, checksum: String) -> std::io::Result<()> {
-        fs::write(path, checksum)?;
+    fn write_log<P: AsRef<Path>>(&self, path: P, checksum: String) -> std::io::Result<()> {
+        // log structure:
+        // checksum    newline
+        // Key
+        // EOF
+
+        // TODO: check if file exists
+        // fs::write(path, checksum)?;
+        fs::write(&path, "")?;
+        let mut log = fs::OpenOptions::new()
+            .append(true)
+            .open(path)?;
+
+        writeln!(log, "{}", checksum)?;
+        self.data().iter().for_each(|&k| writeln!(log, "{}", k).unwrap());
+        writeln!(log, "{:?}", self.background)?;
+        writeln!(log, "{:?}", self.grid)?;
+
         Ok(())
     }
 
@@ -773,14 +804,15 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
     let source_img = ImageReader::open(source)?.with_guessed_format()?.decode()?;
     let mut lex = Lexer::new();
 
-    if let Ok(checksum) = Key::read_log("out/key.log") {
+    let log = Key::read_log("out/key.log").unwrap();
+    if let Some(checksum) = log.lines().next() {
         if let Ok(digest) = try_digest(key) {
             if checksum != digest {
                 lex.key.read_keys(&key_img);
-                Key::write_log("out/key.log", digest).unwrap();
+                lex.key.write_log("out/key.log", digest).unwrap();
                 println!("Finished reading keys");
             } else {
-
+                // TODO: serde stuff with log.next()
             }
         }
     }
