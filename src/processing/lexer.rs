@@ -117,7 +117,6 @@ macro_rules! assign_key {
     };
 }
 
-
 // data for the tokens
 #[derive(Debug, PartialEq)]
 pub struct KeyData {
@@ -132,8 +131,12 @@ pub struct KeyData {
 
 impl std::fmt::Display for KeyData {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error>{
-        write!(f, "{:?}{}{}{}{}{}",
-               self.colour,
+        // TODO: implement display for Rgb type that just prints the channels seperated by a newline and use it in KeyLog::write_log() for background and grid colour
+        let channels = self.colour.channels();
+        write!(f, "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+               channels[0],
+               channels[1],
+               channels[2],
                self.width_left,
                self.width_right,
                self.height_up,
@@ -192,35 +195,6 @@ impl Key {
             background: Rgb([0, 0, 0]),
             grid: Rgb([0, 0, 0])
         }
-    }
-
-    // data thats contained in the log file
-    // fn dump_log
-
-    fn write_log<P: AsRef<Path>>(&self, path: P, checksum: String) -> std::io::Result<()> {
-        // log structure:
-        // checksum    newline
-        // Key
-        // EOF
-
-        // TODO: check if file exists
-        // fs::write(path, checksum)?;
-        fs::write(&path, "")?;
-        let mut log = fs::OpenOptions::new()
-            .append(true)
-            .open(path)?;
-
-        writeln!(log, "{}", checksum)?;
-        self.data().iter().for_each(|&k| writeln!(log, "{}", k).unwrap());
-        writeln!(log, "{:?}", self.background)?;
-        writeln!(log, "{:?}", self.grid)?;
-
-        Ok(())
-    }
-
-    fn read_log<P: AsRef<Path>>(path: P) -> Result<String, Box<dyn std::error::Error>> {
-        let checksum = fs::read_to_string(path)?.parse()?;
-        Ok(checksum)
     }
 
     // TODO: dont hardcode the size & maybe use a macro or something or use serde
@@ -447,6 +421,48 @@ impl Key {
     }
 }
 
+// TODO: in future maybe keep track of position of all the keys in source and key file so we can use compression for vc and stuff
+
+// structure of log file ("key.log")
+// seperated by a newline
+struct KeyLog<'a, P: AsRef<Path>> {
+    path: P,
+    checksum: String,
+    key: &'a Key,
+}
+
+impl<P: AsRef<Path>> KeyLog<'_, P> {
+    // data thats contained in the log file
+    // fn dump_log
+
+    fn write_log(&self) -> std::io::Result<()> {
+        // TODO: check if file exists
+        // fs::write(path, checksum)?;
+        fs::write(&self.path, "")?;
+        let mut log = fs::OpenOptions::new()
+            .append(true)
+            .open(&self.path)?;
+
+        writeln!(log, "{}", self.checksum)?;
+
+        // unwrap()s fine since key is expected to be Some(_);
+        self.key.data().iter().for_each(|&k| writeln!(log, "{}", k).unwrap());
+        writeln!(log, "{:?}", self.key.background)?;
+        writeln!(log, "{:?}", self.key.grid)?;
+
+        Ok(())
+    }
+
+    // propagate errors
+    fn read_log(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // let mut log = fs::read_to_string(self.path)?.parse::<String>()?.lines();
+        // self.checksum = log.next().unwrap().to_owned();
+        // self.key
+
+        Ok(())
+    }
+}
+
 struct Lexer {
     key: Key,
     tokens: Vec<Lexeme>
@@ -652,7 +668,6 @@ impl Lexer {
         let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
 
         let mut line: Vec<Lexeme> = Vec::new(); // token buffer
-        // TODO: maybe instead of ignore we just skip over the width of the token when analysed
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
 
         // TODO: optimise line height to perfectly fit everything (right now its larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
@@ -804,18 +819,22 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
     let source_img = ImageReader::open(source)?.with_guessed_format()?.decode()?;
     let mut lex = Lexer::new();
 
-    let log = Key::read_log("out/key.log").unwrap();
-    if let Some(checksum) = log.lines().next() {
-        if let Ok(digest) = try_digest(key) {
-            if checksum != digest {
-                lex.key.read_keys(&key_img);
-                lex.key.write_log("out/key.log", digest).unwrap();
-                println!("Finished reading keys");
-            } else {
-                // TODO: serde stuff with log.next()
-            }
+            lex.key.read_keys(&key_img);
+    let mut log = KeyLog {
+        path: "out/key.log",
+        checksum: Default::default(),
+        key: &lex.key
+    };
+    log.read_log().unwrap();
+    if let Ok(digest) = try_digest(key) {
+        if log.checksum == digest {
+            // TODO: serde stuff with log.next()
+        } else {
+            log.checksum = digest;
+            log.write_log().unwrap();
         }
     }
+    println!("Finished reading keys");
 
     lex.analyse(&source_img);
     println!("Finished tokenizing");
