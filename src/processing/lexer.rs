@@ -131,7 +131,6 @@ pub struct KeyData {
 
 impl std::fmt::Display for KeyData {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error>{
-        // TODO: implement display for Rgb type that just prints the channels seperated by a newline and use it in KeyLog::write_log() for background and grid colour
         let channels = self.colour.channels();
         write!(f, "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                channels[0],
@@ -504,26 +503,28 @@ impl Lexer {
     // returns the first keys token from a 1d index onwards
     // TODO: wont get the first, will get the heighest
     // TODO: optimise this with ignore map
-    // TODO: refactor to use Tile and consume first in one area
     // TODO: rename since this isnt consuming anything
-    fn consume_first(&self, begin: usize, image: &image::DynamicImage) -> Token {
+    fn consume_first(&self, bounds: &Tile, image: &image::DynamicImage) -> Token {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
-        for i in begin..image.width() as usize * image.height() as usize {
-            if pixels[i] == self.key.background {
-                continue;
-            }
+        for x in bounds.x..bounds.width as usize {
+            for y in bounds.y..bounds.height as usize {
+                let pixel = pixels[x + y * image.height() as usize];
+                if pixel == self.key.background {
+                    continue;
+                }
 
-            for key in self.key.data_from_colour(pixels[i]) {
-                let tile = Tile::from_1d(
-                    i.max(key.width_left as usize) - key.width_left as usize,
-                    (key.width_left + key.width_right) as u32,
-                    (key.height_up + key.height_down) as u32,
-                    image
-                );
+                for key in self.key.data_from_colour(pixel) {
+                    let tile = Tile {
+                        x: (x - key.width_left as usize).max(0),
+                        y,
+                        width: (key.width_left + key.width_right) as u32,
+                        height: (key.height_up + key.height_down) as u32
+                    };
 
-                // if the tile matches a key
-                if tile.compute_tile(pixels[i], image) == key.amount {
-                    return key.token;
+                    // if the tile matches a key
+                    if tile.compute_tile(pixel, image) == key.amount {
+                        return key.token;
+                    }
                 }
             }
         }
@@ -534,23 +535,24 @@ impl Lexer {
 
     // return the height of the line
     // its just the tallest key that intersects a ray from the first keys middle row
-    // NOTE: does not take into account LineBreaks
-    // TODO: refactor to use Tiles because line_height in scopes
     fn line_height(
-        //     begin: (x    , y)
-        &self, begin: (usize, usize), background: Rgb<u8>, image: &image::DynamicImage
+        &self,
+        bounds: &Tile,
+        background: Rgb<u8>,
+        image: &image::DynamicImage
     ) -> u8 {
         // unwrapping is fine since there is always atleast one element when this function is called
-        let first = self.key.data_from_token(self.consume_first(begin.0 + begin.1 * image.width() as usize, image));
+        let first = self.key.data_from_token(self.consume_first(bounds, image));
         let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut max_height: u8 = first.height_up + first.height_down;
+        let linebreak_colour = self.key.data_from_token(Token::LineBreak).colour;
 
         // index of middle row of key
         // beginning y + half key height
-        let middle_row = (begin.1 + (max_height/2) as usize) as u32 * image.width();
+        let middle_row = (bounds.y + (max_height/2) as usize) as u32 * image.width();
 
-        for i in begin.0..image.width() as usize {
+        for i in bounds.x..bounds.width as usize {
             // TODO: see if we should check if the key exists instead of just relying on one pixel
             //       pros: more accurate line height + possibly faster tokenization
             //       cons: slower + more accurate tokenization
@@ -572,6 +574,10 @@ impl Lexer {
                 .max()
                 .unwrap_or(0) // need to do this cause we dont check if the key exists yet
                 .max(max_height);
+
+            if colour == linebreak_colour {
+                break;
+            }
         }
 
         max_height
@@ -658,7 +664,7 @@ impl Lexer {
         image: &image::DynamicImage
     ) -> (Vec<Lexeme>, Tile) {
         let mut size = bounds.clone();
-        size.height = self.line_height((size.x, size.y), background, image) as u32;
+        size.height = self.line_height(bounds, background, image) as u32;
         if size.height == 0 {
             return (Vec::new(), size);
         }
@@ -1003,7 +1009,8 @@ mod tests {
     fn lexer_consume_first() {
         let setup = LexerSetup::new();
 
-        let test = setup.lexer.consume_first(21, &setup.img);
+        let tile = Tile::from_1d(21, setup.img.width(), setup.img.height(), &setup.img);
+        let test = setup.lexer.consume_first(&tile, &setup.img);
         let expected = Token::Quote;
 
         assert_eq!(test, expected);
@@ -1013,7 +1020,8 @@ mod tests {
     fn lexer_line_height() {
         let setup = LexerSetup::new();
 
-        let test = setup.lexer.line_height((23, 0), setup.lexer.key.background, &setup.img);
+        let tile = Tile::from_1d(23, setup.img.width(), setup.img.height(), &setup.img);
+        let test = setup.lexer.line_height(&tile, setup.lexer.key.background, &setup.img);
         let expected = 12;
 
         assert_eq!(test, expected);
