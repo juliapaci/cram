@@ -8,7 +8,6 @@ use std::io::Write;
 
 use sha256::try_digest;
 
-// TODO: refactor Key parsing to use this
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
 struct Tile {
     // Tile assumes a top left origin
@@ -175,7 +174,7 @@ struct Key {
 
     // not a token
     background: Rgb<u8>,        // background colour of the image
-    grid: Rgb<u8>               // grid colour for the key file
+    grid: Rgb<u8>,              // grid colour for the key file
 }
 
 impl Key {
@@ -422,12 +421,18 @@ impl Key {
 
 // TODO: in future maybe keep track of position of all the keys in source and key file so we can use compression for vc and stuff
 
-// structure of log file ("key.log")
+// structure of log file ("key.log"), see KeyData Display trait
 // seperated by a newline
 struct KeyLog<'a, P: AsRef<Path>> {
     path: P,
     checksum: String,
-    key: &'a Key,
+    key: &'a mut Key,
+}
+
+macro_rules! take {
+    ($data: expr) => {
+        $data.next().unwrap().parse().unwrap()
+    };
 }
 
 impl<P: AsRef<Path>> KeyLog<'_, P> {
@@ -452,13 +457,36 @@ impl<P: AsRef<Path>> KeyLog<'_, P> {
         Ok(())
     }
 
-    // propagate errors
+    // propagates errors
+    // TODO: unwrap() is not fine even though we hardcode the data it could be corrupted
     fn read_log(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // let mut log = fs::read_to_string(self.path)?.parse::<String>()?.lines();
-        // self.checksum = log.next().unwrap().to_owned();
-        // self.key
+        let log = fs::read_to_string(&self.path)?.parse::<String>()?;
+        let mut values = log.lines();
+        self.checksum = values.next().unwrap().to_owned();
+         // TODO: 8 for KeyData Display but should prob use constant or dynamically do this with serde or something
+        self.key.zero = Self::read_key(values.clone().take(8), Token::Zero);
+        self.key.increment = Self::read_key(values.clone().take(8), Token::Increment);
+        self.key.decrement = Self::read_key(values.clone().take(8), Token::Decrement);
+        self.key.access = Self::read_key(values.clone().take(8), Token::Access);
+        self.key.repeat = Self::read_key(values.clone().take(8), Token::Repeat);
+        self.key.quote = Self::read_key(values.clone().take(8), Token::Quote);
+        self.key.line_break = Self::read_key(values.clone().take(8), Token::LineBreak);
+        self.key.background = Rgb([take!(values), take!(values), take!(values)]);
+        self.key.grid = Rgb([take!(values), take!(values), take!(values)]);
 
         Ok(())
+    }
+
+    fn read_key(mut data: core::iter::Take<std::str::Lines>, token: Token) -> KeyData {
+        KeyData {
+            token,
+            colour: Rgb([take!(data), take!(data), take!(data)]),
+            width_left: take!(data),
+            width_right: take!(data),
+            height_up: take!(data),
+            height_down: take!(data),
+            amount: take!(data)
+        }
     }
 }
 
@@ -506,6 +534,7 @@ impl Lexer {
     // TODO: rename since this isnt consuming anything
     fn consume_first(&self, bounds: &Tile, image: &image::DynamicImage) -> Token {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+        // TODO: use a macro or heigher order function for this loop since we use it alot
         for x in bounds.x..bounds.width as usize {
             for y in bounds.y..bounds.height as usize {
                 let pixel = pixels[x + y * image.height() as usize];
@@ -829,11 +858,12 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
     let mut log = KeyLog {
         path: "out/key.log",
         checksum: Default::default(),
-        key: &lex.key
+        key: &mut lex.key
     };
     log.read_log().unwrap();
     if let Ok(digest) = try_digest(key) {
         if log.checksum == digest {
+            log.read_log().unwrap();
             // TODO: serde stuff with log.next()
         } else {
             log.checksum = digest;
