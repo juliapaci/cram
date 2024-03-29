@@ -555,11 +555,8 @@ impl Lexer {
     // TODO: rename since this isnt consuming anything
     fn consume_first(&self, bounds: &Tile, image: &image::DynamicImage) -> Token {
         // TODO: use a macro or heigher order function for this loop since we use it alot
-        for x in bounds.x..bounds.x + bounds.width as usize {
-            // TODO: not sure if we have to bounds check here?
-            bounds_check!(x, image.width(), continue);
-            for y in bounds.y..bounds.y + bounds.height as usize {
-                bounds_check!(y, image.height(), continue);
+        for x in bounds.x..(bounds.x + bounds.width as usize).max(image.width() as usize) {
+            for y in bounds.y..(bounds.y + bounds.height as usize).max(image.height() as usize) {
 
                 let pixel = image.get_pixel(x as u32, y as u32).to_rgb();
                 if pixel == self.key.background {
@@ -603,12 +600,11 @@ impl Lexer {
         // index of middle row of key
         let middle_row = bounds.y + (max_height/2) as usize;
 
-        for x in bounds.x..bounds.x + bounds.width as usize {
+        for x in bounds.x..(bounds.x + bounds.width as usize).max(image.width() as usize) {
             // TODO: see if we should check if the key exists instead of just relying on one pixel
             //       pros: more accurate line height + possibly faster tokenization
             //       cons: slower + more accurate tokenization
 
-            bounds_check!(x, image.width(), continue);
             let colour = image.get_pixel(x as u32, middle_row as u32 * image.width()).to_rgb();
             if colour == background {
                 continue
