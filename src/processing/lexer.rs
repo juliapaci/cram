@@ -165,9 +165,13 @@ macro_rules! take {
     };
 }
 
+// TODO: find way to implement display for RGB type
+
 // bounds checking
+// true for out of bounds
+// false for in bounds
 macro_rules! bounds_check {
-    ($position: expr, $bounds: expr, $true: expr, $false: expr) => {
+    ($position: expr, $bounds: expr, $true: block, $false: block) => {
         if  bounds_check!($position, $bounds) {
             $true
         }
@@ -175,14 +179,14 @@ macro_rules! bounds_check {
         $false
     };
 
-    ($position: expr, $bounds: expr, $true: expr) => {
+    ($position: expr, $bounds: expr, $true: block) => {
         if bounds_check!($position, $bounds) {
             $true
         }
     };
 
     ($position: expr, $bounds: expr) => {
-        $position as usize > $bounds as usize
+        $position as usize >= $bounds as usize
     }
 }
 
@@ -244,13 +248,16 @@ impl Key {
 
         // unwrap()s fine since key is expected to be Some(_);
         self.data().iter().for_each(|&k| writeln!(log, "{}", k).unwrap());
-        writeln!(log, "{:?}", self.background)?;
-        writeln!(log, "{:?}", self.grid)?;
+
+        let bgc = self.background.channels();
+        let ggc = self.grid.channels();
+        writeln!(log, "{}\n{}\n{}", bgc[0], bgc[1], bgc[2])?;
+        writeln!(log, "{}\n{}\n{}", ggc[0], ggc[1], ggc[2])?;
 
         Ok(())
     }
 
-    // propagates errors
+    // TODO: propagates some errors but panics others
     // TODO: unwrap() is not fine even though we hardcode the data it could be corrupted
     // decodes the log file and returns the checksum and the Key
     fn read_log<P: AsRef<Path>>(&mut self, path: P) -> Result<(String, Key), Box<dyn std::error::Error>> {
@@ -259,6 +266,7 @@ impl Key {
         let checksum = values.next().unwrap().to_owned();
          // TODO: 8 for KeyData Display but should prob use constant or dynamically do this with serde or something
 
+        // TODO: not reading colour data correctly
         Ok((checksum,
            Key {
             zero: Self::read_key(values.clone().take(8), Token::Zero),
@@ -529,6 +537,7 @@ impl Lexer {
     fn detect_rectangle(&self, begin: (usize, usize), image: &image::DynamicImage) -> Tile {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
+        let background = pixels[begin.1][begin.0];
 
         Tile {
             x: begin.0,
@@ -536,7 +545,7 @@ impl Lexer {
 
             width: pixels[begin.1][begin.0..]
                 .iter()
-                .position(|p| *p == self.key.background)
+                .position(|p| *p != background)
                 .unwrap_or(image.width() as usize) as u32,
 
             height: pixels
@@ -544,7 +553,7 @@ impl Lexer {
                 .map(|row| row[begin.0])
                 .collect::<Vec<Rgb<u8>>>()[begin.1..]
                     .iter()
-                    .position(|&p| p == self.key.background)
+                    .position(|&p| p != background)
                     .unwrap_or(image.height() as usize) as u32
         }
     }
@@ -555,8 +564,8 @@ impl Lexer {
     // TODO: rename since this isnt consuming anything
     fn consume_first(&self, bounds: &Tile, image: &image::DynamicImage) -> Token {
         // TODO: use a macro or heigher order function for this loop since we use it alot
-        for x in bounds.x..(bounds.x + bounds.width as usize).max(image.width() as usize) {
-            for y in bounds.y..(bounds.y + bounds.height as usize).max(image.height() as usize) {
+        for x in bounds.x..(bounds.x + bounds.width as usize).min(image.width() as usize - 1) {
+            for y in bounds.y..(bounds.y + bounds.height as usize).min(image.height() as usize - 1) {
 
                 let pixel = image.get_pixel(x as u32, y as u32).to_rgb();
                 if pixel == self.key.background {
@@ -591,21 +600,20 @@ impl Lexer {
         background: Rgb<u8>,
         image: &image::DynamicImage
     ) -> u8 {
-        // unwrapping is fine since there is always atleast one element when this function is called
         let first = self.key.data_from_token(self.consume_first(bounds, image));
         let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
         let mut max_height: u8 = first.height_up + first.height_down;
         let linebreak_colour = self.key.data_from_token(Token::LineBreak).colour;
 
         // index of middle row of key
-        let middle_row = bounds.y + (max_height/2) as usize;
+        let middle_row = (bounds.y + (max_height/2) as usize).min(image.height() as usize - 1);
 
-        for x in bounds.x..(bounds.x + bounds.width as usize).max(image.width() as usize) {
+        for x in bounds.x..(bounds.x + bounds.width as usize).min(image.width() as usize - 1) {
             // TODO: see if we should check if the key exists instead of just relying on one pixel
             //       pros: more accurate line height + possibly faster tokenization
             //       cons: slower + more accurate tokenization
 
-            let colour = image.get_pixel(x as u32, middle_row as u32 * image.width()).to_rgb();
+            let colour = image.get_pixel(x as u32, middle_row as u32).to_rgb();
             if colour == background {
                 continue
             }
@@ -673,6 +681,7 @@ impl Lexer {
                     }
 
                     for y in 0..frame.height as usize {
+                        // TODO: better way to do this bounds checking
                         if y + frame.y >= image.height() as usize {
                             break;
                         }
@@ -684,10 +693,10 @@ impl Lexer {
                         let mut line = self.analyse_line(&mut Tile {
                             x: x + frame.x,
                             y: y + frame.y,
-                            width: scope.tile.width,
-                            height: scope.tile.height
+                            width: scope.tile.width - x as u32,
+                            height: scope.tile.height - y as u32,
                         }, scope.colour, image);
-                        frame.x += line.1.width as usize - 1;
+                        frame.x += line.1.width as usize;
                         frame.y += line.1.height as usize;
 
                         self.tokens.append(&mut line.0);
@@ -758,6 +767,7 @@ impl Lexer {
                     let scope = self.detect_rectangle((x, y), image);
                     // rectangle is big enough to be a scope
                     if scope.width > 64 && scope.height > 64 {
+                        println!("scope for: {:?} (vs {:?})\nwhich is: {scope:?}", pixels[y][x], self.key.background);
                         self.analyse_scope(&Scope {
                             colour: pixels[y][x],
                             tile: scope
@@ -875,6 +885,7 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
 
     let log_path = "out/key.log";
     let (checksum, log) = lex.key.read_log(log_path).unwrap();
+    // TODO: checksum of file doesnt work, find a working hashimg methodor use time since last file modified
     if let Ok(digest) = try_digest(key) {
         if checksum == digest {
             println!("Reading log");
@@ -883,10 +894,11 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
         } else {
             // log.checksum = digest; // technically dont need this right now since its never used again
             lex.key.read_keys(&key_img);
-            log.write_log(&checksum, log_path).unwrap();
+            lex.key.write_log(&checksum, log_path).unwrap();
         }
     }
     println!("Finished reading keys");
+    println!("{:?}", lex.key.quote);
 
     lex.analyse(&source_img);
     println!("Finished tokenizing");
@@ -977,6 +989,9 @@ mod tests {
             setup
         }
     }
+
+    // TODO: logging tests
+    // TODO: tests for all funcitonbs
 
     #[test]
     fn key_data_from_colour() {
