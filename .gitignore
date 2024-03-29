@@ -3,4 +3,5 @@ perf*
 *.perf
 flamegraph.svg
 /out
-Cargo.lock
+
+# TODO: not sure if i should ignore Cargo.lock?

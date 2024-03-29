@@ -158,6 +158,35 @@ impl KeyData {
     }
 }
 
+// macro for logging
+macro_rules! take {
+    ($data: expr) => {
+        $data.next().unwrap().parse().unwrap()
+    };
+}
+
+// bounds checking
+macro_rules! bounds_check {
+    ($position: expr, $bounds: expr, $true: expr, $false: expr) => {
+        if  bounds_check!($position, $bounds) {
+            $true
+        }
+
+        $false
+    };
+
+    ($position: expr, $bounds: expr, $true: expr) => {
+        if bounds_check!($position, $bounds) {
+            $true
+        }
+    };
+
+    ($position: expr, $bounds: expr) => {
+        $position as usize > $bounds as usize
+    }
+}
+
+
 // data from key file parsing (except variables)
 struct Key {
     // for turing completeness
@@ -192,6 +221,69 @@ impl Key {
 
             background: Rgb([0, 0, 0]),
             grid: Rgb([0, 0, 0])
+        }
+    }
+
+    // structure of log file:
+    // - key file checksum
+    // - see KeyData Display trait
+    // seperated by a newline
+    // TODO: in future maybe keep track of position of all the keys in source and key file so we can use compression for vc and stuff
+    // TODO: keep logs of parts of source file so we dont have to recompile everything all the time
+
+    // encodes Key into a log file
+    fn write_log<P: AsRef<Path>>(&self, checksum: &String, path: P) -> std::io::Result<()> {
+        // TODO: check if file exists
+        // fs::write(path, checksum)?;
+        fs::write(&path, "")?;
+        let mut log = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)?;
+
+        writeln!(log, "{}", checksum)?;
+
+        // unwrap()s fine since key is expected to be Some(_);
+        self.data().iter().for_each(|&k| writeln!(log, "{}", k).unwrap());
+        writeln!(log, "{:?}", self.background)?;
+        writeln!(log, "{:?}", self.grid)?;
+
+        Ok(())
+    }
+
+    // propagates errors
+    // TODO: unwrap() is not fine even though we hardcode the data it could be corrupted
+    // decodes the log file and returns the checksum and the Key
+    fn read_log<P: AsRef<Path>>(&mut self, path: P) -> Result<(String, Key), Box<dyn std::error::Error>> {
+        let log = fs::read_to_string(&path)?.parse::<String>()?;
+        let mut values = log.lines();
+        let checksum = values.next().unwrap().to_owned();
+         // TODO: 8 for KeyData Display but should prob use constant or dynamically do this with serde or something
+
+        Ok((checksum,
+           Key {
+            zero: Self::read_key(values.clone().take(8), Token::Zero),
+            increment: Self::read_key(values.clone().take(8), Token::Increment),
+            decrement: Self::read_key(values.clone().take(8), Token::Decrement),
+            access: Self::read_key(values.clone().take(8), Token::Access),
+            repeat: Self::read_key(values.clone().take(8), Token::Repeat),
+            quote: Self::read_key(values.clone().take(8), Token::Quote),
+            line_break: Self::read_key(values.clone().take(8), Token::LineBreak),
+            background: Rgb([take!(values), take!(values), take!(values)]),
+            grid: Rgb([take!(values), take!(values), take!(values)]),
+
+            variables: Default::default()
+        }))
+    }
+
+    fn read_key(mut data: core::iter::Take<std::str::Lines>, token: Token) -> KeyData {
+        KeyData {
+            token,
+            colour: Rgb([take!(data), take!(data), take!(data)]),
+            width_left: take!(data),
+            width_right: take!(data),
+            height_up: take!(data),
+            height_down: take!(data),
+            amount: take!(data)
         }
     }
 
@@ -419,77 +511,6 @@ impl Key {
     }
 }
 
-// TODO: in future maybe keep track of position of all the keys in source and key file so we can use compression for vc and stuff
-
-// structure of log file ("key.log"), see KeyData Display trait
-// seperated by a newline
-struct KeyLog<'a, P: AsRef<Path>> {
-    path: P,
-    checksum: String,
-    key: &'a mut Key,
-}
-
-macro_rules! take {
-    ($data: expr) => {
-        $data.next().unwrap().parse().unwrap()
-    };
-}
-
-impl<P: AsRef<Path>> KeyLog<'_, P> {
-    // data thats contained in the log file
-    // fn dump_log
-
-    fn write_log(&self) -> std::io::Result<()> {
-        // TODO: check if file exists
-        // fs::write(path, checksum)?;
-        fs::write(&self.path, "")?;
-        let mut log = fs::OpenOptions::new()
-            .append(true)
-            .open(&self.path)?;
-
-        writeln!(log, "{}", self.checksum)?;
-
-        // unwrap()s fine since key is expected to be Some(_);
-        self.key.data().iter().for_each(|&k| writeln!(log, "{}", k).unwrap());
-        writeln!(log, "{:?}", self.key.background)?;
-        writeln!(log, "{:?}", self.key.grid)?;
-
-        Ok(())
-    }
-
-    // propagates errors
-    // TODO: unwrap() is not fine even though we hardcode the data it could be corrupted
-    fn read_log(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let log = fs::read_to_string(&self.path)?.parse::<String>()?;
-        let mut values = log.lines();
-        self.checksum = values.next().unwrap().to_owned();
-         // TODO: 8 for KeyData Display but should prob use constant or dynamically do this with serde or something
-        self.key.zero = Self::read_key(values.clone().take(8), Token::Zero);
-        self.key.increment = Self::read_key(values.clone().take(8), Token::Increment);
-        self.key.decrement = Self::read_key(values.clone().take(8), Token::Decrement);
-        self.key.access = Self::read_key(values.clone().take(8), Token::Access);
-        self.key.repeat = Self::read_key(values.clone().take(8), Token::Repeat);
-        self.key.quote = Self::read_key(values.clone().take(8), Token::Quote);
-        self.key.line_break = Self::read_key(values.clone().take(8), Token::LineBreak);
-        self.key.background = Rgb([take!(values), take!(values), take!(values)]);
-        self.key.grid = Rgb([take!(values), take!(values), take!(values)]);
-
-        Ok(())
-    }
-
-    fn read_key(mut data: core::iter::Take<std::str::Lines>, token: Token) -> KeyData {
-        KeyData {
-            token,
-            colour: Rgb([take!(data), take!(data), take!(data)]),
-            width_left: take!(data),
-            width_right: take!(data),
-            height_up: take!(data),
-            height_down: take!(data),
-            amount: take!(data)
-        }
-    }
-}
-
 struct Lexer {
     key: Key,
     tokens: Vec<Lexeme>
@@ -533,11 +554,14 @@ impl Lexer {
     // TODO: optimise this with ignore map
     // TODO: rename since this isnt consuming anything
     fn consume_first(&self, bounds: &Tile, image: &image::DynamicImage) -> Token {
-        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         // TODO: use a macro or heigher order function for this loop since we use it alot
-        for x in bounds.x..bounds.width as usize {
-            for y in bounds.y..bounds.height as usize {
-                let pixel = pixels[x + y * image.height() as usize];
+        for x in bounds.x..bounds.x + bounds.width as usize {
+            // TODO: not sure if we have to bounds check here?
+            bounds_check!(x, image.width(), continue);
+            for y in bounds.y..bounds.y + bounds.height as usize {
+                bounds_check!(y, image.height(), continue);
+
+                let pixel = image.get_pixel(x as u32, y as u32).to_rgb();
                 if pixel == self.key.background {
                     continue;
                 }
@@ -573,20 +597,19 @@ impl Lexer {
         // unwrapping is fine since there is always atleast one element when this function is called
         let first = self.key.data_from_token(self.consume_first(bounds, image));
         let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
-        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut max_height: u8 = first.height_up + first.height_down;
         let linebreak_colour = self.key.data_from_token(Token::LineBreak).colour;
 
         // index of middle row of key
-        // beginning y + half key height
-        let middle_row = (bounds.y + (max_height/2) as usize) as u32 * image.width();
+        let middle_row = bounds.y + (max_height/2) as usize;
 
-        for i in bounds.x..bounds.width as usize {
+        for x in bounds.x..bounds.x + bounds.width as usize {
             // TODO: see if we should check if the key exists instead of just relying on one pixel
             //       pros: more accurate line height + possibly faster tokenization
             //       cons: slower + more accurate tokenization
 
-            let colour = pixels[i + middle_row as usize];
+            bounds_check!(x, image.width(), continue);
+            let colour = image.get_pixel(x as u32, middle_row as u32 * image.width()).to_rgb();
             if colour == background {
                 continue
             }
@@ -854,20 +877,17 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
     let source_img = ImageReader::open(source)?.with_guessed_format()?.decode()?;
     let mut lex = Lexer::new();
 
-            lex.key.read_keys(&key_img);
-    let mut log = KeyLog {
-        path: "out/key.log",
-        checksum: Default::default(),
-        key: &mut lex.key
-    };
-    log.read_log().unwrap();
+    let log_path = "out/key.log";
+    let (checksum, log) = lex.key.read_log(log_path).unwrap();
     if let Ok(digest) = try_digest(key) {
-        if log.checksum == digest {
-            log.read_log().unwrap();
-            // TODO: serde stuff with log.next()
+        if checksum == digest {
+            println!("Reading log");
+            // TODO: read keys normally if read_log() fails
+            lex.key = log;
         } else {
-            log.checksum = digest;
-            log.write_log().unwrap();
+            // log.checksum = digest; // technically dont need this right now since its never used again
+            lex.key.read_keys(&key_img);
+            log.write_log(&checksum, log_path).unwrap();
         }
     }
     println!("Finished reading keys");
