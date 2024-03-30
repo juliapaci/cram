@@ -258,24 +258,22 @@ impl Key {
     }
 
     // TODO: propagates some errors but panics others
-    // TODO: unwrap() is not fine even though we hardcode the data it could be corrupted
+    // TODO: unwrap() is not fine even though we hardcode it the data it could be corrupted
     // decodes the log file and returns the checksum and the Key
-    fn read_log<P: AsRef<Path>>(&mut self, path: P) -> Result<(String, Key), Box<dyn std::error::Error>> {
+    fn read_log<P: AsRef<Path>>(&self, path: P) -> Result<(String, Key), Box<dyn std::error::Error>> {
         let log = fs::read_to_string(&path)?.parse::<String>()?;
         let mut values = log.lines();
         let checksum = values.next().unwrap().to_owned();
-         // TODO: 8 for KeyData Display but should prob use constant or dynamically do this with serde or something
 
-        // TODO: not reading colour data correctly
         Ok((checksum,
            Key {
-            zero: Self::read_key(values.clone().take(8), Token::Zero),
-            increment: Self::read_key(values.clone().take(8), Token::Increment),
-            decrement: Self::read_key(values.clone().take(8), Token::Decrement),
-            access: Self::read_key(values.clone().take(8), Token::Access),
-            repeat: Self::read_key(values.clone().take(8), Token::Repeat),
-            quote: Self::read_key(values.clone().take(8), Token::Quote),
-            line_break: Self::read_key(values.clone().take(8), Token::LineBreak),
+            zero: Self::read_key(&mut values, Token::Zero),
+            increment: Self::read_key(&mut values, Token::Increment),
+            decrement: Self::read_key(&mut values, Token::Decrement),
+            access: Self::read_key(&mut values, Token::Access),
+            repeat: Self::read_key(&mut values, Token::Repeat),
+            quote: Self::read_key(&mut values, Token::Quote),
+            line_break: Self::read_key(&mut values, Token::LineBreak),
             background: Rgb([take!(values), take!(values), take!(values)]),
             grid: Rgb([take!(values), take!(values), take!(values)]),
 
@@ -283,7 +281,7 @@ impl Key {
         }))
     }
 
-    fn read_key(mut data: core::iter::Take<std::str::Lines>, token: Token) -> KeyData {
+    fn read_key(data: &mut std::str::Lines, token: Token) -> KeyData {
         KeyData {
             token,
             colour: Rgb([take!(data), take!(data), take!(data)]),
@@ -736,7 +734,8 @@ impl Lexer {
         // TODO: optimise line height to perfectly fit everything (right now its larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
             for y in size.y .. (size.y + size.height as usize).min(image.height() as usize) {
-                if pixels[y][x] == background {
+                // TODO: unsure if we should check for key background here since it might be a syntax error
+                if pixels[y][x] == background || pixels[y][x] == self.key.background {
                     continue;
                 }
 
@@ -898,7 +897,6 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
         }
     }
     println!("Finished reading keys");
-    println!("{:?}", lex.key.quote);
 
     lex.analyse(&source_img);
     println!("Finished tokenizing");
