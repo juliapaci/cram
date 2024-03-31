@@ -8,6 +8,9 @@ use std::io::Write;
 
 use sha256::try_digest;
 
+
+// TODO: ggpu or multithreading for faster lexing
+
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
 struct Tile {
     // Tile assumes a top left origin
@@ -161,7 +164,7 @@ impl KeyData {
 // macro for logging
 macro_rules! take {
     ($data: expr) => {
-        $data.next().unwrap().parse().unwrap()
+        $data.next()?.parse().ok()?
     };
 }
 
@@ -260,20 +263,20 @@ impl Key {
     // TODO: propagates some errors but panics others
     // TODO: unwrap() is not fine even though we hardcode it the data it could be corrupted
     // decodes the log file and returns the checksum and the Key
-    fn read_log<P: AsRef<Path>>(&self, path: P) -> Result<(String, Key), Box<dyn std::error::Error>> {
-        let log = fs::read_to_string(&path)?.parse::<String>()?;
+    fn read_log<P: AsRef<Path>>(&self, path: P) -> Option<(String, Key)> {
+        let log = fs::read_to_string(&path).ok()?.parse::<String>().ok()?;
         let mut values = log.lines();
         let checksum = values.next().unwrap().to_owned();
 
-        Ok((checksum,
+        Some((checksum,
            Key {
-            zero: Self::read_key(&mut values, Token::Zero),
-            increment: Self::read_key(&mut values, Token::Increment),
-            decrement: Self::read_key(&mut values, Token::Decrement),
-            access: Self::read_key(&mut values, Token::Access),
-            repeat: Self::read_key(&mut values, Token::Repeat),
-            quote: Self::read_key(&mut values, Token::Quote),
-            line_break: Self::read_key(&mut values, Token::LineBreak),
+            zero: Self::read_key(&mut values, Token::Zero)?,
+            increment: Self::read_key(&mut values, Token::Increment)?,
+            decrement: Self::read_key(&mut values, Token::Decrement)?,
+            access: Self::read_key(&mut values, Token::Access)?,
+            repeat: Self::read_key(&mut values, Token::Repeat)?,
+            quote: Self::read_key(&mut values, Token::Quote)?,
+            line_break: Self::read_key(&mut values, Token::LineBreak)?,
             background: Rgb([take!(values), take!(values), take!(values)]),
             grid: Rgb([take!(values), take!(values), take!(values)]),
 
@@ -281,8 +284,8 @@ impl Key {
         }))
     }
 
-    fn read_key(data: &mut std::str::Lines, token: Token) -> KeyData {
-        KeyData {
+    fn read_key(data: &mut std::str::Lines, token: Token) -> Option<KeyData> {
+        Some(KeyData {
             token,
             colour: Rgb([take!(data), take!(data), take!(data)]),
             width_left: take!(data),
@@ -290,7 +293,7 @@ impl Key {
             height_up: take!(data),
             height_down: take!(data),
             amount: take!(data)
-        }
+        })
     }
 
     // TODO: dont hardcode the size & maybe use a macro or something or use serde
@@ -766,7 +769,6 @@ impl Lexer {
                     let scope = self.detect_rectangle((x, y), image);
                     // rectangle is big enough to be a scope
                     if scope.width > 64 && scope.height > 64 {
-                        println!("scope for: {:?} (vs {:?})\nwhich is: {scope:?}", pixels[y][x], self.key.background);
                         self.analyse_scope(&Scope {
                             colour: pixels[y][x],
                             tile: scope
@@ -883,17 +885,21 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
     let mut lex = Lexer::new();
 
     let log_path = "out/key.log";
-    let (checksum, log) = lex.key.read_log(log_path).unwrap();
+    let log_data = lex.key.read_log(log_path);
+    let clear_read = log_data.is_some();
+    let (checksum, log) = match log_data {
+        Some(data) => data,
+        None => (Default::default(), Key::new())
+    };
     // TODO: checksum of file doesnt work, find a working hashimg methodor use time since last file modified
     if let Ok(digest) = try_digest(key) {
-        if checksum == digest {
-            println!("Reading log");
-            // TODO: read keys normally if read_log() fails
+        if clear_read && checksum == digest {
+            println!("Reading from log");
             lex.key = log;
         } else {
             // log.checksum = digest; // technically dont need this right now since its never used again
             lex.key.read_keys(&key_img);
-            lex.key.write_log(&checksum, log_path).unwrap();
+            lex.key.write_log(&digest, log_path).unwrap();
         }
     }
     println!("Finished reading keys");

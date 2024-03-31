@@ -26,7 +26,7 @@ Cram projects specific syntax is defined by the user in a keys image file   \
 The key file contains the symbols and colours of each token                 \
 an example key image file can be found [here](examples/key.png)
 
-the key file is a 256x256 image read in tiles (64 pixel chunks) from left to right top to bottom in a constant order which is the [key structure](https://github.com/aymey/cram/blob/main/src/processing.rs#L7)
+the key file is a 256x256 image read in tiles (64 pixel chunks) from left to right top to bottom in a constant order which is the key structure
 the background colour
 
 the background colour of the image, which is ignored (both in source and key files), is defined by the most common colour in the key file as a whole (includes what would usually be ignored colours such as grid colour)
