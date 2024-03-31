@@ -1,3 +1,4 @@
+// recursive descent parser
 use crate::processing::lexer::*;
 use std::collections::VecDeque;
 
@@ -13,8 +14,10 @@ pub mod node {
     }
 
     #[derive(Debug)]
-    pub struct Expression {
-        pub value: isize
+    pub enum Expression {
+        Scope(Scope),
+        IntLit(isize),
+        StringLit(String),
     }
 
     // scopes
@@ -30,7 +33,7 @@ pub mod node {
     #[derive(Debug, Default)]
     pub struct Scope {
         pub kind: ScopeType,
-        pub condition: Option<Statement>,
+        pub signature: Option<Statement>,
         pub body: Program
     }
 }
@@ -57,9 +60,9 @@ impl Parser<'_> {
     }
 
 
-    fn parse_expr(&mut self) -> Option<node::Expression> {
+    fn parse_int(&mut self) -> Option<isize> {
         match self.tokens.front() {
-            Some(Lexeme::Token(Token::Zero)) => Some(node::Expression{value: self.eval_lit()}),
+            Some(Lexeme::Token(Token::Zero)) => Some(self.eval_lit()),
 
             // Lexeme::Identifier(id) =>
 
@@ -85,7 +88,7 @@ impl Parser<'_> {
             _ => return None
         };
 
-        scope.condition = self.parse_statement();
+        scope.signature = self.parse_statement();
 
         scope.body = parse(&mut self.tokens).unwrap(); // unwrap() is fine, Err isnt possible
 
@@ -95,29 +98,28 @@ impl Parser<'_> {
     // TODO: maybe a parse_line()
 
     fn parse_statement(&mut self) -> Option<node::Statement> {
-        let statement: node::Statement = Default::default();
+        use node::Expression::*;
 
+        let mut statement: node::Statement = Default::default();
+
+        // TODO: should node::Expressions be put here or should the parsing functions return them?
+        // TODO: replace unwraps with proper error handling
         while let Some(lexeme) = self.tokens.pop_front() {
-            match lexeme {
-                Lexeme::Token(Token::Zero) => {}
-                Lexeme::Token(Token::Increment) => {}
-                Lexeme::Token(Token::Decrement) => {}
-                Lexeme::Token(Token::Access) => {}
-                Lexeme::Token(Token::Repeat) => {}
-                Lexeme::Token(Token::Quote) => {}
-                Lexeme::Token(Token::Variable) => unreachable!(),
-                Lexeme::Token(Token::ScopeStart) => {
-                    self.parse_scope();
-                },
-                Lexeme::Token(Token::ScopeEnd) => {},
+            statement.expressions.push(match lexeme {
+                Lexeme::Token(Token::Zero)      => IntLit(self.parse_int().unwrap()),
+                Lexeme::Token(Token::Increment) => unreachable!(),
+                Lexeme::Token(Token::Decrement) => unreachable!(),
+                Lexeme::Token(Token::Access)    => todo!(),
+                Lexeme::Token(Token::Repeat)    => todo!(),
+                Lexeme::Token(Token::Quote)     => todo!(),
+                Lexeme::Token(Token::Variable)  => unreachable!(),
+                Lexeme::Token(Token::ScopeStart)=> Scope(self.parse_scope().unwrap()),
+                Lexeme::Token(Token::ScopeEnd)  => todo!(),
 
-                Lexeme::Identifier(id) => {}
+                Lexeme::Identifier(id)          => todo!(),
 
-                Lexeme::Token(Token::LineBreak) => {
-                    return Some(statement);
-                }
-                _ => unreachable!()
-            }
+                Lexeme::Token(Token::LineBreak) => return Some(statement),
+            });
         }
 
         None
