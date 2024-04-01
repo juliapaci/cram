@@ -10,6 +10,7 @@ use sha256::try_digest;
 
 
 // TODO: ggpu or multithreading for faster lexing
+// TODO: incremental compilation
 
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
 struct Tile {

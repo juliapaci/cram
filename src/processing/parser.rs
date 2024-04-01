@@ -1,6 +1,5 @@
 // recursive descent parser
 use crate::processing::lexer::*;
-use std::collections::VecDeque;
 
 pub mod node {
     #[derive(Default, Debug)]
@@ -18,6 +17,7 @@ pub mod node {
         Scope(Scope),
         IntLit(isize),
         StringLit(String),
+        Variable()
     }
 
     // scopes
@@ -39,7 +39,7 @@ pub mod node {
 }
 
 struct Parser<'a> {
-    tokens: &'a mut VecDeque<Lexeme>
+    tokens: &'a mut Vec<Lexeme>
 }
 
 impl Parser<'_> {
@@ -47,7 +47,7 @@ impl Parser<'_> {
     fn eval_lit(&mut self) -> isize {
         let mut value = Default::default();
 
-        while let Some(lexeme) = self.tokens.pop_front() {
+        while let Some(lexeme) = self.tokens.pop() {
             if lexeme == Lexeme::Token(Token::LineBreak) {
                 break;
             }
@@ -61,7 +61,7 @@ impl Parser<'_> {
 
 
     fn parse_int(&mut self) -> Option<isize> {
-        match self.tokens.front() {
+        match self.tokens.first() {
             Some(Lexeme::Token(Token::Zero)) => Some(self.eval_lit()),
 
             // Lexeme::Identifier(id) =>
@@ -74,11 +74,10 @@ impl Parser<'_> {
     fn parse_scope(&mut self) -> Option<node::Scope> {
         let mut scope: node::Scope = Default::default();
 
-        scope.kind = match self.tokens.pop_front() {
+        // TODO: should we validate that its a ScopeStart since we do it in parse_statement() already
+        scope.kind = match self.tokens.pop() {
             Some(Lexeme::Token(Token::ScopeStart)) => {
-                let init = self.tokens.pop_front();
-
-                match init {
+                match self.tokens.first() {
                     Some(Lexeme::Token(Token::Access)) => node::ScopeType::Function,
                     Some(Lexeme::Token(Token::Repeat)) => node::ScopeType::Loop,
                     // TODO: if statement
@@ -90,12 +89,16 @@ impl Parser<'_> {
 
         scope.signature = self.parse_statement();
 
-        scope.body = parse(&mut self.tokens).unwrap(); // unwrap() is fine, Err isnt possible
+        scope.body = parse(&mut self.tokens).unwrap();
 
         Some(scope)
     }
 
-    // TODO: maybe a parse_line()
+    fn parse_quote(&mut self) -> Option<node::Expression> {
+        let string = node::Expression::StringLit(self.parse_int()?.to_string());
+        self.tokens.pop(); // pops the ending quote
+        Some(string)
+    }
 
     fn parse_statement(&mut self) -> Option<node::Statement> {
         use node::Expression::*;
@@ -104,17 +107,17 @@ impl Parser<'_> {
 
         // TODO: should node::Expressions be put here or should the parsing functions return them?
         // TODO: replace unwraps with proper error handling
-        while let Some(lexeme) = self.tokens.pop_front() {
+        while let Some(lexeme) = self.tokens.pop() {
             statement.expressions.push(match lexeme {
-                Lexeme::Token(Token::Zero)      => IntLit(self.parse_int().unwrap()),
+                Lexeme::Token(Token::Zero)      => IntLit(self.parse_int()?),
                 Lexeme::Token(Token::Increment) => unreachable!(),
                 Lexeme::Token(Token::Decrement) => unreachable!(),
                 Lexeme::Token(Token::Access)    => todo!(),
-                Lexeme::Token(Token::Repeat)    => todo!(),
-                Lexeme::Token(Token::Quote)     => todo!(),
+                Lexeme::Token(Token::Repeat)    => unreachable!(),
+                Lexeme::Token(Token::Quote)     => self.parse_quote()?,
                 Lexeme::Token(Token::Variable)  => unreachable!(),
-                Lexeme::Token(Token::ScopeStart)=> Scope(self.parse_scope().unwrap()),
-                Lexeme::Token(Token::ScopeEnd)  => todo!(),
+                Lexeme::Token(Token::ScopeStart)=> Scope(self.parse_scope()?),
+                Lexeme::Token(Token::ScopeEnd)  => return Some(statement),
 
                 Lexeme::Identifier(id)          => todo!(),
 
@@ -126,7 +129,8 @@ impl Parser<'_> {
     }
 }
 
-pub fn parse(tokens: &mut VecDeque<Lexeme>) -> Result<node::Program, String> {
+pub fn parse(tokens: &mut Vec<Lexeme>) -> Result<node::Program, String> {
+    tokens.reverse(); // TODO: is reversing first faster than pop_back()?
     let mut parser = Parser {
         tokens
     };
@@ -134,7 +138,12 @@ pub fn parse(tokens: &mut VecDeque<Lexeme>) -> Result<node::Program, String> {
 
     let mut statement = parser.parse_statement();
     while statement.is_some() {
-        program.statements.push(statement.unwrap());
+        program.statements.push(statement.ok_or("invalid syntax\n")?);
+        // TODO: cancel early if end of scope or dont call parse() in parse_scope()
+        // if statement.last() == Some( {
+        //
+        // }
+
         statement = parser.parse_statement();
     }
 

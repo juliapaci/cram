@@ -6,7 +6,7 @@ mod processing {
 
 use processing::*;
 use std::env;
-use std::process::Command;
+use std::process::{exit, Command};
 use std::path::Path;
 
 fn main() {
@@ -16,11 +16,22 @@ fn main() {
         return;
     }
 
+    // lexer
     let tokens = lexer::deserialize(&args[1], &args[2]).unwrap();
     println!("{:?} ({})", tokens, tokens.len());
-    let program = parser::parse(&mut tokens.into()).unwrap();
-    println!("{program:?}");
 
+    // parser
+    let program = match parser::parse(&mut tokens.into()) {
+        Ok(body) => body,
+        Err(err) => {
+            println!("{err}");
+            exit(1);
+        }
+    };
+    println!("Finished parsing:");
+    println!("\t{program:?}");
+
+    // codegen
     let out_name = format!("out/{}", Path::new(&args[3]).file_stem().unwrap().to_str().unwrap());
     codegen::generate(&program, &format!("{}.s", out_name))
         .expect("failed to asm write to file");
