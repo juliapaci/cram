@@ -1,9 +1,9 @@
-use crate::processing::parser;
+use parser::*;
 use std::{io, fs};
 
 // outputes the assembly from the ast to a file
 // propogates fs::write fails
-pub fn generate(program: &parser::node::Program, out: &str) -> io::Result<()> {
+pub fn generate(program: &node::Program, out: &str) -> io::Result<()> {
     let mut asm: String = Default::default();
     asm += "global _start\n";
     asm += "\t_start:\n";

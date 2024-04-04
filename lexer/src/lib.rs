@@ -11,6 +11,7 @@ use sha256::try_digest;
 
 // TODO: ggpu or multithreading for faster lexing
 // TODO: incremental compilation
+// TODO: linter
 
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
 struct Tile {
@@ -919,7 +920,7 @@ mod tests {
     // Tile tests
     #[test]
     fn tile_from_1d() {
-        let img = ImageReader::open("test/100x100.png").unwrap().decode().unwrap();
+        let img = ImageReader::open("../test/100x100.png").unwrap().decode().unwrap();
 
         let test = Tile::from_1d(123, 12, 3, &img);
         let expected = Tile {
@@ -963,7 +964,7 @@ mod tests {
 
     #[test]
     fn tile_compute_tile() {
-        let img = ImageReader::open("test/100x100.png").unwrap().decode().unwrap();
+        let img = ImageReader::open("../test/100x100.png").unwrap().decode().unwrap();
 
         let test = Tile {
             x: 7,
@@ -986,7 +987,7 @@ mod tests {
     impl KeySetup {
         fn new() -> Self {
             let mut setup = Self {
-                img: ImageReader::open("examples/key.png").unwrap().decode().unwrap(),
+                img: ImageReader::open("../examples/key.png").unwrap().decode().unwrap(),
                 key: Key::new()
             };
             setup.key.read_keys(&setup.img);
@@ -1034,7 +1035,7 @@ mod tests {
 
     #[test]
     fn key_identify_background() {
-        let key_file = ImageReader::open("examples/key.png").unwrap().decode().unwrap();
+        let key_file = ImageReader::open("../examples/key.png").unwrap().decode().unwrap();
 
         let mut test = Key::new();
         test.identify_background(&key_file);
@@ -1057,8 +1058,8 @@ mod tests {
     impl LexerSetup {
         fn new() -> Self {
             let mut setup = Self {
-                img: ImageReader::open("test/100x100.png").unwrap().decode().unwrap(),
-                key: ImageReader::open("examples/key.png").unwrap().decode().unwrap(),
+                img: ImageReader::open("../test/100x100.png").unwrap().decode().unwrap(),
+                key: ImageReader::open("../examples/key.png").unwrap().decode().unwrap(),
                 lexer: Lexer {
                     key: Key::new(),
                     tokens: Default::default()
@@ -1096,7 +1097,7 @@ mod tests {
     #[test]
     fn lexer_analyse_scope() {
         let mut setup = LexerSetup::new();
-        setup.img = ImageReader::open("test/scope.png").unwrap().decode().unwrap();
+        setup.img = ImageReader::open("../test/scope.png").unwrap().decode().unwrap();
 
         setup.lexer.analyse_scope(&Scope {
             colour: Rgb([0, 63, 35]),

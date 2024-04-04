@@ -1,10 +1,7 @@
-mod processing {
-    pub mod lexer;
-    pub mod parser;
-    pub mod codegen;
-}
+use lexer::*;
+use parser::*;
+use codegen::*;
 
-use processing::*;
 use std::env;
 use std::process::{exit, Command};
 use std::path::Path;
