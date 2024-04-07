@@ -8,7 +8,6 @@ use std::io::Write;
 
 use sha256::try_digest;
 
-
 // TODO: ggpu or multithreading for faster lexing
 // TODO: incremental compilation
 // TODO: linter
@@ -359,14 +358,13 @@ impl Key {
     }
 
     // converts an area of the image to a 2d array of pixels
-    fn tile_to_pixels(&self, tile: &Tile, image: &image::DynamicImage) -> [[Rgb<u8>; 64]; 64] {
-        let mut pixels: [[Rgb<u8>; 64]; 64] = [[self.background; 64]; 64];
+    fn tile_to_pixels(&self, tile: &Tile, background: Rgb<u8>, image: &image::DynamicImage) -> [[Rgb<u8>; 64]; 64] {
+        let mut pixels: [[Rgb<u8>; 64]; 64] = [[background; 64]; 64];
 
         for y in 0 .. tile.height as usize {
             for x in 0 .. tile.width as usize {
                 if tile.y + y >= image.height() as _ ||
                     tile.x + x >= image.width() as _ {
-                    pixels[y][x] = self.background;
                     continue;
                 }
 
@@ -384,11 +382,11 @@ impl Key {
 
         let mut tiles: [[[Rgb<u8>; 64]; 64]; 16] = [[[Rgb([0, 0, 0]); 64]; 64]; 16];
         for tile in 0..16 {
+            let tile_offset = (tile/4)*64*256 + (tile%4)*64;
             for y in 0..64 {
+                let y_offset = y*image.width() as usize;
                 for x in 0..64 {
-                    // TODO: fix slight errors where each row gets increasingly offset some pixels. (luckily doesnt effet key parsing)
-                    // row of tiles offset (4 tiles) + tile offset + y tile offset + x tile offset
-                    tiles[tile][y][x] = pixels[if tile < 12 {256*64*(tile/4)} else {0} + tile*64 + 256*y + x];
+                    tiles[tile][y][x] = pixels[tile_offset + y_offset + x];
                 }
             }
         }
@@ -398,6 +396,7 @@ impl Key {
 
     // reads the key but doesnt remove parts within it. Useful for reading hollow keys
     // will panic if there is nothing (ignored pixels) occupying the tile (e.g. exclusively background and/or grid pixels)
+    // TODO: add background param to this so it works in scopes
     fn outline_key(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
         // the trimmed key
         let mut key: Vec<Vec<Rgb<u8>>> = Vec::new();
@@ -505,10 +504,10 @@ impl Key {
         self.identify_background(image);
 
         let tiles = self.image_to_tiles(image);
-        // for (i, tile) in tiles.iter().enumerate() {
-        //     Tile::from_1d(if i < 12 {256*64*(i/4)} else {0} + i*64 , 64, 64, image)
-        //         .save_tile(image, format!("tile{}.png", i)).unwrap();
-        // }
+        for (i, _) in tiles.iter().enumerate() {
+            Tile::from_1d(256*64*(i/4) + (i%4)*64 , 64, 64, image)
+                .save_tile(format!("tile{}.png", i), image).unwrap();
+        }
 
         // TODO: find better way of finding key grid colour like detect rectangles or something
         self.grid = tiles[0][0][0];
@@ -567,8 +566,8 @@ impl Lexer {
     // TODO: rename since this isnt consuming anything
     fn consume_first(&self, bounds: &Tile, image: &image::DynamicImage) -> Token {
         // TODO: use a macro or heigher order function for this loop since we use it alot
-        for x in bounds.x..(bounds.x + bounds.width as usize).min(image.width() as usize - 1) {
-            for y in bounds.y..(bounds.y + bounds.height as usize).min(image.height() as usize - 1) {
+        for x in bounds.x..(bounds.x + bounds.width as usize).min(image.width() as usize) {
+            for y in bounds.y..(bounds.y + bounds.height as usize).min(image.height() as usize) {
 
                 let pixel = image.get_pixel(x as u32, y as u32).to_rgb();
                 if pixel == self.key.background {
@@ -609,9 +608,9 @@ impl Lexer {
         let linebreak_colour = self.key.data_from_token(Token::LineBreak).colour;
 
         // index of middle row of key
-        let middle_row = (bounds.y + (max_height/2) as usize).min(image.height() as usize - 1);
+        let middle_row = (bounds.y + (max_height/2) as usize).min(image.height() as usize);
 
-        for x in bounds.x..(bounds.x + bounds.width as usize).min(image.width() as usize - 1) {
+        for x in bounds.x..(bounds.x + bounds.width as usize).min(image.width() as usize) {
             // TODO: see if we should check if the key exists instead of just relying on one pixel
             //       pros: more accurate line height + possibly faster tokenization
             //       cons: slower + more accurate tokenization
@@ -756,12 +755,13 @@ impl Lexer {
                             if matches!(lexeme, Lexeme::Token(token)
                                         if *token == Token::Access)) {
                     // TODO: this weirdly breaks if colours are above it??
+                    // TODO: fix default bounding box of possible variable by finding the actual size before outline key maybe
                     self.key.variables.push(
                         self.key.outline_key(
                             &self.key.tile_to_pixels(&Tile {
                                 x, y: size.y-1,
                                 width: 64, height: size.height
-                            }, &image),
+                            }, background, &image),
                             Token::Variable)
                         );
                 }
@@ -866,7 +866,7 @@ impl Lexer {
                             width: image.width(),
                             height: image.height()
                         }, self.key.background, image);
-                        frame.x += line.1.width as usize - 1;
+                        frame.x += line.1.width as usize - 1; // TODO: should there be a "- 1" here?
                         frame.y += line.1.height as usize;
 
                         self.tokens.append(&mut line.0);
@@ -893,13 +893,11 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
         Some(data) => data,
         None => (Default::default(), Key::new())
     };
-    // TODO: checksum of file doesnt work, find a working hashimg methodor use time since last file modified
     if let Ok(digest) = try_digest(key) {
         if clear_read && checksum == digest {
             println!("Reading from log");
             lex.key = log;
         } else {
-            // log.checksum = digest; // technically dont need this right now since its never used again
             lex.key.read_keys(&key_img);
             lex.key.write_log(&digest, log_path).unwrap();
         }

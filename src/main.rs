@@ -1,7 +1,3 @@
-use lexer::*;
-use parser::*;
-use codegen::*;
-
 use std::env;
 use std::process::{exit, Command};
 use std::path::Path;
