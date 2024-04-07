@@ -12,6 +12,23 @@ use sha256::try_digest;
 // TODO: incremental compilation
 // TODO: linter
 
+// bounds checking
+macro_rules! bounds_check {
+    ($position: expr, $bound: expr, $in: block, $out: block) => {
+        if !bounds_check!($position, $bound) $out
+
+        $in
+    };
+
+    ($position: expr, $bound: expr, $out: block) => {
+        if !bounds_check!($position, $bound) $out
+    };
+
+    ($position: expr, $bound: expr) => {
+        ($position as usize) < $bound as usize
+    }
+}
+
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
 struct Tile {
     // Tile assumes a top left origin
@@ -40,20 +57,14 @@ impl Tile {
 
     // returns the amount of same coloured pixels in a tile
     fn compute_tile(&self, colour: Rgb<u8>, image: &image::DynamicImage) -> u32 {
-        // TODO: to stop computing this everywhere maybe make a getter for it or something
-        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let mut amount = 0;
 
-        let bound = (image.width()*image.height()) as isize;
         for y in 0..self.height as usize {
-            for x in 0..self.width as isize {
-                let index: isize = (self.x as isize)+x + ((self.y + y)*(image.width() as usize)) as isize;
+            bounds_check!(y, image.height(), {break});
+            for x in 0..self.width as usize {
+                bounds_check!(x, image.width(), {break});
 
-                if index < 0 || index >= bound {
-                    return 0;
-                }
-
-                amount += (pixels[index as usize] == colour) as u32;
+                amount += (image.get_pixel((self.x + x) as u32, (self.y + y) as u32).to_rgb() == colour) as u32;
             }
         }
 
@@ -83,7 +94,7 @@ impl Tile {
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Token {
-    // constant keys (read from key file)
+    // static keys (read from key file)
     Zero,
     Increment,
     Decrement,
@@ -170,30 +181,6 @@ macro_rules! take {
 }
 
 // TODO: find way to implement display for RGB type
-
-// bounds checking
-// true for out of bounds
-// false for in bounds
-macro_rules! bounds_check {
-    ($position: expr, $bounds: expr, $true: block, $false: block) => {
-        if  bounds_check!($position, $bounds) {
-            $true
-        }
-
-        $false
-    };
-
-    ($position: expr, $bounds: expr, $true: block) => {
-        if bounds_check!($position, $bounds) {
-            $true
-        }
-    };
-
-    ($position: expr, $bounds: expr) => {
-        $position as usize >= $bounds as usize
-    }
-}
-
 
 // data from key file parsing (except variables)
 struct Key {
@@ -504,10 +491,6 @@ impl Key {
         self.identify_background(image);
 
         let tiles = self.image_to_tiles(image);
-        for (i, _) in tiles.iter().enumerate() {
-            Tile::from_1d(256*64*(i/4) + (i%4)*64 , 64, 64, image)
-                .save_tile(format!("tile{}.png", i), image).unwrap();
-        }
 
         // TODO: find better way of finding key grid colour like detect rectangles or something
         self.grid = tiles[0][0][0];
@@ -533,6 +516,8 @@ impl Lexer {
             tokens: Vec::new()  // Token buffer
         }
     }
+
+    // TODO: instead of passing around background we should keep a background field to change and read that whenever, like another self.key.background
 
     // detects solid rectangles for scopes
     // returns the tile that encampasses the rectangle
@@ -564,13 +549,12 @@ impl Lexer {
     // TODO: wont get the first, will get the heighest
     // TODO: optimise this with ignore map
     // TODO: rename since this isnt consuming anything
-    fn consume_first(&self, bounds: &Tile, image: &image::DynamicImage) -> Token {
+    fn consume_first(&self, bounds: &Tile, background: Rgb<u8>, image: &image::DynamicImage) -> Token {
         // TODO: use a macro or heigher order function for this loop since we use it alot
         for x in bounds.x..(bounds.x + bounds.width as usize).min(image.width() as usize) {
             for y in bounds.y..(bounds.y + bounds.height as usize).min(image.height() as usize) {
-
                 let pixel = image.get_pixel(x as u32, y as u32).to_rgb();
-                if pixel == self.key.background {
+                if pixel == background {
                     continue;
                 }
 
@@ -602,7 +586,7 @@ impl Lexer {
         background: Rgb<u8>,
         image: &image::DynamicImage
     ) -> u8 {
-        let first = self.key.data_from_token(self.consume_first(bounds, image));
+        let first = self.key.data_from_token(self.consume_first(bounds, background, image));
         let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
         let mut max_height: u8 = first.height_up + first.height_down;
         let linebreak_colour = self.key.data_from_token(Token::LineBreak).colour;
@@ -1075,7 +1059,7 @@ mod tests {
         let setup = LexerSetup::new();
 
         let tile = Tile::from_1d(21, setup.img.width(), setup.img.height(), &setup.img);
-        let test = setup.lexer.consume_first(&tile, &setup.img);
+        let test = setup.lexer.consume_first(&tile, setup.lexer.key.background, &setup.img);
         let expected = Token::Quote;
 
         assert_eq!(test, expected);

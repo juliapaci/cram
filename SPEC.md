@@ -77,7 +77,7 @@ variables are referenced by their symbols
 
 ### scopes
 
-scopes are denoted by a solid rectangle with a background colour that differs from the regular background           \
-these initial definitions expect either params/return values for functions or conditions for loops/if statements    \
+scopes are denoted by a solid rectangle with a background colour that differs from the regular background   \
+these initial definitions expect either params/return values for functions or conditions for loops/if statement
 
 scopes are lexed homogeneously so side-by-side code delimited by a line break will be pushed after the scope
