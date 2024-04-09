@@ -32,8 +32,6 @@ the background colour
 the background colour of the image, which is ignored (both in source and key files), is defined by the most common colour in the key file as a whole (includes what would usually be ignored colours such as grid colour)
 
 a few quirks of key files currently:
-- the grid colour is found from the very first pixel (top left corner) of the image
-    - this grid colour is ignore in the key file
 - non rectangular objects are tokenized from a rectangular tile (like a bounding box in video games)
     - if the amount of pixels in the tokens tile matches the amount of pixels in the keys tile, then we deem it a match
     - a keys pixels can be arranged in any way withing the bounding box

@@ -71,6 +71,31 @@ impl Tile {
         amount
     }
 
+    // detects solid rectangles for scopes
+    // returns the tile that encampasses the rectangle
+    fn detect_rectangle(begin: (usize, usize), image: &image::DynamicImage) -> Self {
+        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
+        let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
+        let background = pixels[begin.1][begin.0];
+
+        Self {
+            x: begin.0,
+            y: begin.1,
+
+            width: pixels[begin.1][begin.0..]
+                .iter()
+                .position(|p| *p != background)
+                .unwrap_or(image.width() as usize) as u32,
+
+            height: pixels
+                .iter()
+                .map(|row| row[begin.0])
+                .collect::<Vec<Rgb<u8>>>()[begin.1..]
+                    .iter()
+                    .position(|&p| p != background)
+                    .unwrap_or(image.height() as usize) as u32
+        }
+    }
 
     // will save a pixels in a tile as an image
     #[allow(dead_code)] // debug function
@@ -228,8 +253,6 @@ impl Key {
 
     // encodes Key into a log file
     fn write_log<P: AsRef<Path>>(&self, checksum: &String, path: P) -> std::io::Result<()> {
-        // TODO: check if file exists
-        // fs::write(path, checksum)?;
         fs::write(&path, "")?;
         let mut log = fs::OpenOptions::new()
             .append(true)
@@ -248,13 +271,11 @@ impl Key {
         Ok(())
     }
 
-    // TODO: propagates some errors but panics others
-    // TODO: unwrap() is not fine even though we hardcode it the data it could be corrupted
     // decodes the log file and returns the checksum and the Key
     fn read_log<P: AsRef<Path>>(&self, path: P) -> Option<(String, Key)> {
         let log = fs::read_to_string(&path).ok()?.parse::<String>().ok()?;
         let mut values = log.lines();
-        let checksum = values.next().unwrap().to_owned();
+        let checksum = values.next()?.to_owned();
 
         Some((checksum,
            Key {
@@ -455,7 +476,7 @@ impl Key {
                     .iter()
                     .position(|&p| p != self.background && p != self.grid)
                     .unwrap_or(64), // TODO: dont hardcode this
-                    y
+                y
             )})
             .min().unwrap();
 
@@ -475,10 +496,10 @@ impl Key {
             token,
             colour: key[0][0],
 
+            // fields values are from leftmost
             width_left: (first_pixel.0 as i16 - leftmost_pixel.0 as i16).abs() as u8,
             width_right: (width - (first_pixel.0 as i16 - leftmost_pixel.0 as i16)).abs() as u8,
 
-            // TODO: this ignores hollow in height which causes wrong height if theres gaps in the middle (y wise) of keys
             height_up: (leftmost_pixel.1 as i16 - first_pixel.1 as i16).abs() as u8,
             height_down: key.len() as u8 - (leftmost_pixel.1 as i16 - first_pixel.1 as i16).abs() as u8,
 
@@ -489,11 +510,13 @@ impl Key {
     // read each 64x64 "tile" and apply the colour inside to the key structure
     fn read_keys(&mut self, image: &image::DynamicImage) {
         self.identify_background(image);
-
         let tiles = self.image_to_tiles(image);
 
-        // TODO: find better way of finding key grid colour like detect rectangles or something
-        self.grid = tiles[0][0][0];
+        let grid = Tile::detect_rectangle((0, 0), image);
+        if grid.width == image.width() &&
+            grid.height == image.height() {
+                self.grid = tiles[0][0][0];
+        }
         assign_key!(&self, self.zero, &tiles, 0);
         assign_key!(&self, self.increment, &tiles, 1);
         assign_key!(&self, self.decrement, &tiles, 2);
@@ -518,32 +541,6 @@ impl Lexer {
     }
 
     // TODO: instead of passing around background we should keep a background field to change and read that whenever, like another self.key.background
-
-    // detects solid rectangles for scopes
-    // returns the tile that encampasses the rectangle
-    fn detect_rectangle(&self, begin: (usize, usize), image: &image::DynamicImage) -> Tile {
-        let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
-        let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
-        let background = pixels[begin.1][begin.0];
-
-        Tile {
-            x: begin.0,
-            y: begin.1,
-
-            width: pixels[begin.1][begin.0..]
-                .iter()
-                .position(|p| *p != background)
-                .unwrap_or(image.width() as usize) as u32,
-
-            height: pixels
-                .iter()
-                .map(|row| row[begin.0])
-                .collect::<Vec<Rgb<u8>>>()[begin.1..]
-                    .iter()
-                    .position(|&p| p != background)
-                    .unwrap_or(image.height() as usize) as u32
-        }
-    }
 
     // returns the first keys token from a 1d index onwards
     // TODO: wont get the first, will get the heighest
@@ -625,8 +622,7 @@ impl Lexer {
         max_height
     }
 
-    // TODO: should multiple analysis functions change self.tokens
-    //       or should they each return Vec<Lexeme> to concantenate together in one place?
+    // TODO: should multiple analysis functions change self.tokens or should they each return Vec<Lexeme> to concantenate together in one place?
     // TODO: panics when variables are referenced with rectangular symbols/names
     // TODO: dont duplicate code in analyse(), make a generic loop with a higher order function or something
     // tokenizes a scope
@@ -662,15 +658,10 @@ impl Lexer {
             frame.x = init_x;
             while frame.x < scope.tile.x + scope.tile.width as usize {
                 'frame: for x in 0..frame.width as usize {
-                    if x + frame.x >= image.width() as usize {
-                        break;
-                    }
+                    bounds_check!(x + frame.x, image.width(), {break});
 
                     for y in 0..frame.height as usize {
-                        // TODO: better way to do this bounds checking
-                        if y + frame.y >= image.height() as usize {
-                            break;
-                        }
+                        bounds_check!(y + frame.y, image.height(), {break});
 
                         if pixels[y + frame.y][x + frame.x] == scope.colour {
                             continue;
@@ -752,7 +743,7 @@ impl Lexer {
 
                 // if the pixel is unknown then it could be a scope
                 if self.key.data_from_colour(pixels[y][x]).is_empty() {
-                    let scope = self.detect_rectangle((x, y), image);
+                    let scope = Tile::detect_rectangle((x, y), image);
                     // rectangle is big enough to be a scope
                     if scope.width > 64 && scope.height > 64 {
                         self.analyse_scope(&Scope {
@@ -895,6 +886,7 @@ pub fn deserialize(key: &String, source: &String) -> Result<Vec<Lexeme>, image::
 }
 
 // TODO: maybe use a special test key instead of official default key so we can test for weirder shapes
+// TODO: do more extensive tests and test multiple cases
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -958,6 +950,20 @@ mod tests {
 
         assert_eq!(test, expected);
 
+    }
+
+    #[test]
+    fn tile_detect_rectangle() {
+        let img = ImageReader::open("../test/100x100.png").unwrap().decode().unwrap();
+
+        let test = Tile::detect_rectangle((0, 0), &img);
+        let expected = Tile {
+            x: 0, y: 0,
+            width: img.width(),
+            height: img.height()
+        };
+
+        assert_eq!(test, expected);
     }
 
     // Key tests
