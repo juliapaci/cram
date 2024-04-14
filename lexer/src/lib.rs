@@ -60,9 +60,9 @@ impl Tile {
         let mut amount = 0;
 
         for y in 0..self.height as usize {
-            bounds_check!(y, image.height(), {break});
+            bounds_check!(self.y + y, image.height(), {break});
             for x in 0..self.width as usize {
-                bounds_check!(x, image.width(), {break});
+                bounds_check!(self.x + x, image.width(), {break});
 
                 amount += (image.get_pixel((self.x + x) as u32, (self.y + y) as u32).to_rgb() == colour) as u32;
             }
@@ -589,7 +589,7 @@ impl Lexer {
         let linebreak_colour = self.key.data_from_token(Token::LineBreak).colour;
 
         // index of middle row of key
-        let middle_row = (bounds.y + (max_height/2) as usize).min(image.height() as usize);
+        let middle_row = (bounds.y + (max_height/2) as usize).min(image.height() as usize - 1);
 
         for x in bounds.x..(bounds.x + bounds.width as usize).min(image.width() as usize) {
             // TODO: see if we should check if the key exists instead of just relying on one pixel
@@ -708,6 +708,8 @@ impl Lexer {
         let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
 
         let mut line: Vec<Lexeme> = Vec::new(); // token buffer
+        // TODO: remove some ignore areas that are eway past the crrent iteration
+        // TODO: jump over ignored areas instead of just continue;ing
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
 
         // TODO: optimise line height to perfectly fit everything (right now its larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
@@ -720,6 +722,12 @@ impl Lexer {
 
                 // checking if where in an area thats already been checked
                 if let Some(tile) = ignore.get(&pixels[y][x]) {
+                    if Tile::overlapping(&Tile {x, y, width: 0, height: 0}, tile) {
+                        continue;
+                    }
+                } else if let Some(tile) = ignore.get(&self.key.line_break.colour) {
+                    // see the hack todo in the scope part where we insert specifically for line
+                    // break colour
                     if Tile::overlapping(&Tile {x, y, width: 0, height: 0}, tile) {
                         continue;
                     }
@@ -751,6 +759,9 @@ impl Lexer {
                             tile: scope
                         }, image);
 
+                        // TODO: very hacky, using LineBreak colour to denote a general area to ignore.
+                        // should do something different
+                        ignore.insert(self.key.line_break.colour, scope);
                         ignore.insert(pixels[y][x], scope);
                         continue;
                     }
