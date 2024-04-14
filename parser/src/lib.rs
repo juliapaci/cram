@@ -59,7 +59,6 @@ impl Parser<'_> {
             value -= decrement as isize;
         }
 
-        println!("{value}");
         value
     }
 
@@ -72,22 +71,16 @@ impl Parser<'_> {
     fn parse_scope(&mut self) -> Option<node::Scope> {
         let mut scope: node::Scope = Default::default();
 
-        // TODO: should we validate that its a ScopeStart since we do it in parse_statement() already
         scope.kind = match self.tokens.pop() {
-            Some(Lexeme::Token(Token::ScopeStart)) => {
-                match self.tokens.first() {
-                    Some(Lexeme::Token(Token::Access)) => node::ScopeType::Function,
-                    Some(Lexeme::Token(Token::Repeat)) => node::ScopeType::Loop,
-                    // TODO: if statement
-                    _ => return None
-                }
-            },
+            Some(Lexeme::Token(Token::Access)) => node::ScopeType::Function,
+            Some(Lexeme::Token(Token::Repeat)) => node::ScopeType::Loop,
+            // TODO: if statement
             _ => return None
         };
 
-        scope.signature = Some(self.parse_line()?.0);
+        scope.signature = Some(self.parse_line()?);
 
-        scope.body = parse(&mut self.tokens).unwrap();
+        scope.body = self.parse_body()?;
 
         Some(scope)
     }
@@ -98,8 +91,22 @@ impl Parser<'_> {
         Some(string)
     }
 
+    // TODO: this is duplicate code for parse()
+    fn parse_body(&mut self) -> Option<node::Program> {
+        let mut program: node::Program = Default::default();
+
+        let mut line = self.parse_line();
+        while !line.as_ref()?.expressions.is_empty() {
+            program.statements.push(line.unwrap());
+
+            line = self.parse_line();
+        }
+
+        Some(program)
+    }
+
     // TODO: definantly not the best wasy to handle scope body parsing beign a bool
-    fn parse_line(&mut self) -> Option<(node::Statement, bool)> {
+    fn parse_line(&mut self) -> Option<node::Statement> {
         use node::Expression::*;
 
         let mut statement: node::Statement = Default::default();
@@ -116,11 +123,11 @@ impl Parser<'_> {
                 Lexeme::Token(Token::Quote)     => self.parse_quote()?,
                 Lexeme::Token(Token::Variable)  => unreachable!(),
                 Lexeme::Token(Token::ScopeStart)=> Scope(self.parse_scope()?),
-                Lexeme::Token(Token::ScopeEnd)  => return Some((statement, true)),
+                Lexeme::Token(Token::ScopeEnd)  => unreachable!(),
 
                 Lexeme::Identifier(id)          => todo!(),
 
-                Lexeme::Token(Token::LineBreak) => return Some((statement, false)),
+                Lexeme::Token(Token::LineBreak) => return Some(statement)
             });
         }
 
@@ -137,15 +144,10 @@ pub fn parse(tokens: &mut Vec<Lexeme>) -> Result<node::Program, String> {
 
     let mut line_numb = 1;
     let mut line = parser.parse_line();
-    while !line.as_ref().ok_or(format!("invalid syntax at line {}", line_numb))?.0.expressions.is_empty() {
-        let curr_line = line.unwrap();
-        program.statements.push(curr_line.0);
-        if curr_line.1 {
-            return Ok(program);
-        }
+    while !line.as_ref().ok_or(format!("invalid syntax at line {}", line_numb))?.expressions.is_empty() {
+        program.statements.push(line.unwrap());
 
         line = parser.parse_line();
-
         line_numb += 1;
     }
 
