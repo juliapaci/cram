@@ -691,6 +691,7 @@ impl Lexer {
 
     // tokenizes a line of keys
     // returns the tokens and size of line
+    // TODO: fix lexing bugs for examples/problem.png
     fn analyse_line(
         &mut self,
         bounds: &Tile,
@@ -708,14 +709,15 @@ impl Lexer {
         let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
 
         let mut line: Vec<Lexeme> = Vec::new(); // token buffer
-        // TODO: remove some ignore areas that are eway past the crrent iteration
+        // TODO: remove some ignore entries that are far away from the crrent iteration pixel locaiton
         // TODO: jump over ignored areas instead of just continue;ing
         let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
 
         // TODO: optimise line height to perfectly fit everything (right now its larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
             for y in size.y .. (size.y + size.height as usize).min(image.height() as usize) {
-                // TODO: unsure if we should check for key background here since it might be a syntax error
+                // TODO: unsure if we should check for key background here since it might be an
+                // error for the parser
                 if pixels[y][x] == background || pixels[y][x] == self.key.background {
                     continue;
                 }
@@ -725,7 +727,7 @@ impl Lexer {
                     if Tile::overlapping(&Tile {x, y, width: 0, height: 0}, tile) {
                         continue;
                     }
-                } else if let Some(tile) = ignore.get(&self.key.line_break.colour) {
+                } else if let Some(tile) = ignore.get(&self.key.line_break.colour) { // check area
                     // see the hack todo in the scope part where we insert specifically for line
                     // break colour
                     if Tile::overlapping(&Tile {x, y, width: 0, height: 0}, tile) {
@@ -762,7 +764,6 @@ impl Lexer {
                         // TODO: very hacky, using LineBreak colour to denote a general area to ignore.
                         // should do something different
                         ignore.insert(self.key.line_break.colour, scope);
-                        ignore.insert(pixels[y][x], scope);
                         continue;
                     }
                 }
@@ -965,13 +966,13 @@ mod tests {
 
     #[test]
     fn tile_detect_rectangle() {
-        let img = ImageReader::open("../test/100x100.png").unwrap().decode().unwrap();
+        let img = ImageReader::open("../test/scope.png").unwrap().decode().unwrap();
 
-        let test = Tile::detect_rectangle((0, 0), &img);
+        let test = Tile::detect_rectangle((38, 34), &img);
         let expected = Tile {
-            x: 0, y: 0,
-            width: img.width(),
-            height: img.height()
+            x: 38, y: 34,
+            width: 125,
+            height: 126
         };
 
         assert_eq!(test, expected);
