@@ -529,14 +529,16 @@ impl Key {
 
 struct Lexer {
     key: Key,
-    tokens: Vec<Lexeme>
+    tokens: Vec<Lexeme>,
+    ignore: HashMap<Rgb<u8>, Tile> // TODO: should everything use self.ignore or their own ignore maps
 }
 
 impl Lexer {
     fn new() -> Self {
         Self {
-            key: Key::new(),    // Keys
-            tokens: Vec::new()  // Token buffer
+            key: Key::new(),        // Keys
+            tokens: Vec::new(),     // Token buffer
+            ignore: HashMap::new()  // Ignore map
         }
     }
 
@@ -692,6 +694,8 @@ impl Lexer {
     // tokenizes a line of keys
     // returns the tokens and size of line
     // TODO: fix lexing bugs for examples/problem.png
+    // TODO: remove some ignore entries that are far away from the crrent iteration pixel locaiton
+    // TODO: jump over ignored areas instead of just continue;ing
     fn analyse_line(
         &mut self,
         bounds: &Tile,
@@ -709,13 +713,11 @@ impl Lexer {
         let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
 
         let mut line: Vec<Lexeme> = Vec::new(); // token buffer
-        // TODO: remove some ignore entries that are far away from the crrent iteration pixel locaiton
-        // TODO: jump over ignored areas instead of just continue;ing
-        let mut ignore: HashMap<Rgb<u8>, Tile> = HashMap::new();
 
         // TODO: optimise line height to perfectly fit everything (right now its larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
             for y in size.y .. (size.y + size.height as usize).min(image.height() as usize) {
+
                 // TODO: unsure if we should check for key background here since it might be an
                 // error for the parser
                 if pixels[y][x] == background || pixels[y][x] == self.key.background {
@@ -723,11 +725,11 @@ impl Lexer {
                 }
 
                 // checking if where in an area thats already been checked
-                if let Some(tile) = ignore.get(&pixels[y][x]) {
+                if let Some(tile) = self.ignore.get(&pixels[y][x]) {
                     if Tile::overlapping(&Tile {x, y, width: 0, height: 0}, tile) {
                         continue;
                     }
-                } else if let Some(tile) = ignore.get(&self.key.line_break.colour) { // check area
+                } if let Some(tile) = self.ignore.get(&self.key.line_break.colour) { // check area
                     // see the hack todo in the scope part where we insert specifically for line
                     // break colour
                     if Tile::overlapping(&Tile {x, y, width: 0, height: 0}, tile) {
@@ -763,7 +765,7 @@ impl Lexer {
 
                         // TODO: very hacky, using LineBreak colour to denote a general area to ignore.
                         // should do something different
-                        ignore.insert(self.key.line_break.colour, scope);
+                        self.ignore.insert(self.key.line_break.colour, scope);
                         continue;
                     }
                 }
@@ -792,7 +794,7 @@ impl Lexer {
                     }
 
                     // marks this area as already checked
-                    ignore.insert(pixels[y][x], tile);
+                    self.ignore.insert(pixels[y][x], tile);
                 }
             }
         }
@@ -856,6 +858,7 @@ impl Lexer {
                         frame.x += line.1.width as usize - 1; // TODO: should there be a "- 1" here?
                         frame.y += line.1.height as usize;
 
+                        // TODO: analyse_line() already takes mutable self so just append there instead of appending the returned local buffer
                         self.tokens.append(&mut line.0);
 
                         break 'frame;
