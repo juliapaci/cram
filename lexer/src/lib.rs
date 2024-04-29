@@ -669,16 +669,14 @@ impl Lexer {
                             continue;
                         }
 
-                        let mut line = self.analyse_line(&mut Tile {
+                        let line = self.analyse_line(&mut Tile {
                             x: x + frame.x,
                             y: y + frame.y,
                             width: scope.tile.width - x as u32,
                             height: scope.tile.height - y as u32,
                         }, scope.colour, image);
-                        frame.x += line.1.width as usize;
-                        frame.y += line.1.height as usize;
-
-                        self.tokens.append(&mut line.0);
+                        frame.x += line.width as usize;
+                        frame.y += line.height as usize;
 
                         break 'frame;
                     }
@@ -692,7 +690,7 @@ impl Lexer {
     }
 
     // tokenizes a line of keys
-    // returns the tokens and size of line
+    // returns area of the line to be skipped so its not analysed again
     // TODO: fix lexing bugs for examples/problem.png
     // TODO: remove some ignore entries that are far away from the crrent iteration pixel locaiton
     // TODO: jump over ignored areas instead of just continue;ing
@@ -701,18 +699,16 @@ impl Lexer {
         bounds: &Tile,
         background: Rgb<u8>,
         image: &image::DynamicImage
-    ) -> (Vec<Lexeme>, Tile) {
+    ) -> Tile {
         let mut size = bounds.clone();
         size.height = self.line_height(bounds, background, image) as u32;
         if size.height == 0 {
-            return (Vec::new(), size);
+            return size;
         }
 
         // faster to do this or to use get_pixel()?
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
         let pixels: Vec<Vec<Rgb<u8>>> = pixels.chunks_exact(image.width() as usize).map(|chunk| chunk.to_vec()).collect();
-
-        let mut line: Vec<Lexeme> = Vec::new(); // token buffer
 
         // TODO: optimise line height to perfectly fit everything (right now its larger than it needs to be) + then we can use Tile::overlapping because we wont need custom yh for loop
         'img: for x in size.x .. (size.x + size.width as usize).min(image.width() as usize) {
@@ -738,7 +734,7 @@ impl Lexer {
                 }
 
                 // read variable decleration, expected after an Access token
-                if matches!(line.last(), Some(lexeme)
+                if matches!(self.tokens.last(), Some(lexeme)
                             if matches!(lexeme, Lexeme::Token(token)
                                         if *token == Token::Access)) {
                     // TODO: this weirdly breaks if colours are above it??
@@ -781,7 +777,7 @@ impl Lexer {
 
                     // if the tile matches a key
                     if tile.compute_tile(pixels[y][x], image) == key.amount {
-                        line.push(match key.token {
+                        self.tokens.push(match key.token {
                             Token::Variable => Lexeme::Identifier(self.key.variables.iter().position(|v| v == key).unwrap()),
                             _ => Lexeme::Token(key.token)
                         });
@@ -801,13 +797,13 @@ impl Lexer {
 
         // inserting a line break if there wasnt one there
         // TODO: ignore consecutive LineBreaks better
-        if let Some(&ref lexeme) = line.last() {
+        if let Some(&ref lexeme) = self.tokens.last() {
             if *lexeme != Lexeme::Token(Token::LineBreak) {
-                line.push(Lexeme::Token(Token::LineBreak));
+                self.tokens.push(Lexeme::Token(Token::LineBreak));
             }
         }
 
-        (line, size)
+        size
     }
 
     pub fn analyse(&mut self, image: &image::DynamicImage) {
@@ -849,17 +845,14 @@ impl Lexer {
                             continue;
                         }
 
-                        let mut line = self.analyse_line(&mut Tile {
+                        let line = self.analyse_line(&mut Tile {
                             x: x + frame.x,
                             y: y + frame.y,
                             width: image.width(),
                             height: image.height()
                         }, self.key.background, image);
-                        frame.x += line.1.width as usize - 1; // TODO: should there be a "- 1" here?
-                        frame.y += line.1.height as usize;
-
-                        // TODO: analyse_line() already takes mutable self so just append there instead of appending the returned local buffer
-                        self.tokens.append(&mut line.0);
+                        frame.x += line.width as usize - 1; // TODO: should there be a "- 1" here?
+                        frame.y += line.height as usize;
 
                         break 'frame;
                     }
@@ -1063,10 +1056,7 @@ mod tests {
             let mut setup = Self {
                 img: ImageReader::open("../test/100x100.png").unwrap().decode().unwrap(),
                 key: ImageReader::open("../examples/key.png").unwrap().decode().unwrap(),
-                lexer: Lexer {
-                    key: Key::new(),
-                    tokens: Default::default()
-                }
+                lexer: Lexer::new()
             };
 
             setup.lexer.key.read_keys(&setup.key);
@@ -1133,17 +1123,16 @@ mod tests {
             width: setup.img.width(),
             height: setup.img.height()
         }, setup.lexer.key.background, &setup.img);
-        let expected = (
-            vec![Lexeme::Token(Token::Quote), Lexeme::Token(Token::LineBreak)],
-            Tile {
-                x: 28,
-                y: 11,
-                width: setup.img.height(),
-                height: 12
-            }
-        );
+        let expected_area = Tile {
+            x: 28,
+            y: 11,
+            width: setup.img.height(),
+            height: 12
+        };
+        let expected_tokens = vec![Lexeme::Token(Token::Quote), Lexeme::Token(Token::LineBreak)];
 
-        assert_eq!(test, expected);
+        assert_eq!(test, expected_area);
+        assert_eq!(setup.lexer.tokens, expected_tokens);
     }
 
     #[test]
