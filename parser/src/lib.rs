@@ -15,6 +15,7 @@ pub mod node {
     #[derive(Debug)]
     pub enum Expression {
         Scope(Scope),
+        ScopeEnd, // TODO: better way to find scopeEnd this is not good
         IntLit(isize),
         StringLit(String),
         Variable()
@@ -100,12 +101,17 @@ impl Parser<'_> {
             program.statements.push(line.unwrap());
 
             line = self.parse_line();
+            if let Some(line) = &line {
+                match line.expressions.last()? {
+                    node::Expression::ScopeEnd => break,
+                    _ => continue
+                }
+            }
         }
 
         Some(program)
     }
 
-    // TODO: definantly not the best wasy to handle scope body parsing beign a bool
     fn parse_line(&mut self) -> Option<node::Statement> {
         use node::Expression::*;
 
@@ -116,14 +122,14 @@ impl Parser<'_> {
         while let Some(lexeme) = self.tokens.pop() {
             statement.expressions.push(match lexeme {
                 Lexeme::Token(Token::Zero)      => IntLit(self.parse_int()?),
-                Lexeme::Token(Token::Increment) => unreachable!(),
-                Lexeme::Token(Token::Decrement) => unreachable!(),
+                Lexeme::Token(Token::Increment) => {println!("Increment");unreachable!()},
+                Lexeme::Token(Token::Decrement) => {println!("Decrement");unreachable!()},
                 Lexeme::Token(Token::Access)    => todo!(),
-                Lexeme::Token(Token::Repeat)    => unreachable!(),
+                Lexeme::Token(Token::Repeat)    => {println!("Repeat");unreachable!()},
                 Lexeme::Token(Token::Quote)     => self.parse_quote()?,
-                Lexeme::Token(Token::Variable)  => unreachable!(),
+                Lexeme::Token(Token::Variable)  => {println!("Variable");unreachable!()},
                 Lexeme::Token(Token::ScopeStart)=> Scope(self.parse_scope()?),
-                Lexeme::Token(Token::ScopeEnd)  => unreachable!(),
+                Lexeme::Token(Token::ScopeEnd)  => return Some(statement),
 
                 Lexeme::Identifier(id)          => todo!(),
 
