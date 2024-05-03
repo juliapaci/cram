@@ -691,7 +691,6 @@ impl Lexer {
 
     // tokenizes a line of keys
     // returns area of the line to be skipped so its not analysed again
-    // TODO: fix lexing bugs for examples/problem.png
     // TODO: remove some ignore entries that are far away from the crrent iteration pixel locaiton
     // TODO: jump over ignored areas instead of just continue;ing
     fn analyse_line(

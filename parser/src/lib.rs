@@ -1,6 +1,8 @@
 // recursive descent parser
 use lexer::*;
 
+use std::collections::HashMap;
+
 pub mod node {
     #[derive(Default, Debug)]
     pub struct Program {
@@ -18,7 +20,7 @@ pub mod node {
         ScopeEnd, // TODO: better way to find scopeEnd this is not good
         IntLit(isize),
         StringLit(String),
-        Variable()
+        Variable(usize)
     }
 
     // scopes
@@ -40,7 +42,8 @@ pub mod node {
 }
 
 struct Parser<'a> {
-    tokens: &'a mut Vec<Lexeme>
+    tokens: &'a mut Vec<Lexeme>,
+    symbol_table: HashMap<usize, isize> // TODO: be generic so we dont just have integer data types
 }
 
 impl Parser<'_> {
@@ -62,7 +65,6 @@ impl Parser<'_> {
 
         value
     }
-
 
     fn parse_int(&mut self) -> Option<isize> {
         Some(self.eval_lit())
@@ -112,6 +114,21 @@ impl Parser<'_> {
         Some(program)
     }
 
+    // adds a variable to the symbol_table
+    fn add_var(&mut self) -> Option<node::Expression> {
+        let id = self.tokens.pop();
+        if let Some(Lexeme::Identifier(id)) = id {
+            self.symbol_table.insert(id, 0);
+            return Some(node::Expression::Variable(id))
+        }
+
+        None
+    }
+
+    fn replace_var(&self, id: usize) -> Option<&isize> {
+        self.symbol_table.get(&id)
+    }
+
     fn parse_line(&mut self) -> Option<node::Statement> {
         use node::Expression::*;
 
@@ -122,16 +139,15 @@ impl Parser<'_> {
         while let Some(lexeme) = self.tokens.pop() {
             statement.expressions.push(match lexeme {
                 Lexeme::Token(Token::Zero)      => IntLit(self.parse_int()?),
-                Lexeme::Token(Token::Increment) => {println!("Increment");unreachable!()},
-                Lexeme::Token(Token::Decrement) => {println!("Decrement");unreachable!()},
-                Lexeme::Token(Token::Access)    => todo!(),
-                Lexeme::Token(Token::Repeat)    => {println!("Repeat");unreachable!()},
+                Lexeme::Token(Token::Increment) => unreachable!(),
+                Lexeme::Token(Token::Decrement) => unreachable!(),
+                Lexeme::Token(Token::Access)    => self.add_var()?,
+                Lexeme::Token(Token::Variable)  => unreachable!(),
+                Lexeme::Identifier(id)          => IntLit(*self.replace_var(id)?), // TODO: maybe part of parse_int()
+                Lexeme::Token(Token::Repeat)    => unreachable!(),
                 Lexeme::Token(Token::Quote)     => self.parse_quote()?,
-                Lexeme::Token(Token::Variable)  => {println!("Variable");unreachable!()},
                 Lexeme::Token(Token::ScopeStart)=> Scope(self.parse_scope()?),
                 Lexeme::Token(Token::ScopeEnd)  => return Some(statement),
-
-                Lexeme::Identifier(id)          => todo!(),
 
                 Lexeme::Token(Token::LineBreak) => return Some(statement)
             });
@@ -144,7 +160,8 @@ impl Parser<'_> {
 pub fn parse(tokens: &mut Vec<Lexeme>) -> Result<node::Program, String> {
     tokens.reverse(); // TODO: is reversing first faster than pop_back()?
     let mut parser = Parser {
-        tokens
+        tokens,
+        symbol_table: HashMap::new()
     };
     let mut program: node::Program = Default::default();
 
