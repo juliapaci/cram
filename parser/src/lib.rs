@@ -4,6 +4,8 @@ use lexer::*;
 use std::collections::HashMap;
 
 pub mod node {
+    use crate::SymbolType;
+
     #[derive(Default, Debug)]
     pub struct Program {
         pub statements: Vec<Statement>
@@ -20,7 +22,8 @@ pub mod node {
         ScopeEnd, // TODO: better way to find scopeEnd this is not good
         IntLit(isize),
         StringLit(String),
-        Variable(usize)
+        Variable((usize, SymbolType)) // id, type
+        // TODO: variables should also take into account scope therefore i do not think that we should store variable data like this.
     }
 
     // scopes
@@ -41,9 +44,16 @@ pub mod node {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum SymbolType {
+    Undefined,
+    Int(usize),
+    String(String)
+}
+
 struct Parser<'a> {
     tokens: &'a mut Vec<Lexeme>,
-    symbol_table: HashMap<usize, isize> // TODO: be generic so we dont just have integer data types
+    symbol_table: HashMap<usize, SymbolType>
 }
 
 impl Parser<'_> {
@@ -117,15 +127,16 @@ impl Parser<'_> {
     // adds a variable to the symbol_table
     fn add_var(&mut self) -> Option<node::Expression> {
         let id = self.tokens.pop();
+        // TODO: do we need to check this?
         if let Some(Lexeme::Identifier(id)) = id {
-            self.symbol_table.insert(id, 0);
-            return Some(node::Expression::Variable(id))
+            self.symbol_table.insert(id, SymbolType::Undefined);
+            return Some(node::Expression::Variable((id, SymbolType::Undefined)))
         }
 
         None
     }
 
-    fn replace_var(&self, id: usize) -> Option<&isize> {
+    fn replace_var(&self, id: usize) -> Option<&SymbolType> {
         self.symbol_table.get(&id)
     }
 
@@ -143,7 +154,7 @@ impl Parser<'_> {
                 Lexeme::Token(Token::Decrement) => unreachable!(),
                 Lexeme::Token(Token::Access)    => self.add_var()?,
                 Lexeme::Token(Token::Variable)  => unreachable!(),
-                Lexeme::Identifier(id)          => IntLit(*self.replace_var(id)?), // TODO: maybe part of parse_int()
+                Lexeme::Identifier(id)          => Variable((id, self.replace_var(id)?.clone())), // TODO: maybe part of parse_int()
                 Lexeme::Token(Token::Repeat)    => unreachable!(),
                 Lexeme::Token(Token::Quote)     => self.parse_quote()?,
                 Lexeme::Token(Token::ScopeStart)=> Scope(self.parse_scope()?),
@@ -174,5 +185,6 @@ pub fn parse(tokens: &mut Vec<Lexeme>) -> Result<node::Program, String> {
         line_numb += 1;
     }
 
+    println!("\n{program:?}");
     Ok(program)
 }
