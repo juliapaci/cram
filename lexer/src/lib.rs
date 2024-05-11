@@ -147,15 +147,6 @@ struct Scope {
     tile: Tile
 }
 
-// TODO: assign_keys!() instead to assign all of them with a vector of $keys but wihtout borrowing issues
-// TODO: find id another one (like serde or something) instead of a param
-macro_rules! assign_key {
-    ($self: expr, $key: expr, $tile: expr, $id: expr) => {
-        // unsafe is fine since we are hardcoding the possible values of teken
-        $key = $self.outline_key(&$tile[$id], unsafe {std::mem::transmute($id as u8)})
-    };
-}
-
 // data for the tokens
 #[derive(Debug, PartialEq)]
 pub struct KeyData {
@@ -310,6 +301,13 @@ impl Key {
     fn data(&self) -> Vec<&KeyData> {
         let mut keys = vec![&self.zero, &self.increment, &self.decrement, &self.access, &self.repeat, &self.quote, &self.line_break]; // keys from key file
         keys.extend(self.variables.iter()); // keys from source file (variables)
+
+        keys
+    }
+
+    fn data_mut(&mut self) -> Vec<&mut KeyData> {
+        let mut keys = vec![&mut self.zero, &mut self.increment, &mut self.decrement, &mut self.access, &mut self.repeat, &mut self.quote, &mut self.line_break]; // keys from key file
+        keys.extend(self.variables.iter_mut()); // keys from source file (variables)
 
         keys
     }
@@ -517,13 +515,16 @@ impl Key {
             grid.height == image.height() {
                 self.grid = tiles[0][0][0];
         }
-        assign_key!(&self, self.zero, &tiles, 0);
-        assign_key!(&self, self.increment, &tiles, 1);
-        assign_key!(&self, self.decrement, &tiles, 2);
-        assign_key!(&self, self.access, &tiles, 3);
-        assign_key!(&self, self.repeat, &tiles, 4);
-        assign_key!(&self, self.quote, &tiles, 5);
-        assign_key!(&self, self.line_break, &tiles, 6);
+
+        // assign key fields to real data
+        self
+            .data_mut()
+            .iter()
+            .enumerate()
+            .for_each(|(i, &key)| {
+                // unsafe is fine since we are hardcoding the possible values of teken
+                *key = self.outline_key(&tiles[i], unsafe {std::mem::transmute(i as u8)});
+            });
     }
 }
 
