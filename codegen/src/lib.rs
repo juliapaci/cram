@@ -1,5 +1,5 @@
 use parser::*;
-use std::{io, fs};
+use std::{fs, io};
 
 // outputes the assembly from the ast to a file
 // propogates fs::write fails

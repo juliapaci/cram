@@ -8,12 +8,12 @@ pub mod node {
 
     #[derive(Default, Debug)]
     pub struct Program {
-        pub statements: Vec<Statement>
+        pub statements: Vec<Statement>,
     }
 
     #[derive(Default, Debug)]
     pub struct Statement {
-        pub expressions: Vec<Expression>
+        pub expressions: Vec<Expression>,
     }
 
     #[derive(Debug)]
@@ -22,8 +22,8 @@ pub mod node {
         ScopeEnd, // TODO: better way to find scopeEnd this is not good
         IntLit(isize),
         StringLit(String),
-        Variable((usize, SymbolType)) // id, type
-        // TODO: variables should also take into account scope therefore i do not think that we should store variable data like this.
+        Variable((usize, SymbolType)), // id, type
+                                       // TODO: variables should also take into account scope therefore i do not think that we should store variable data like this.
     }
 
     // scopes
@@ -33,14 +33,14 @@ pub mod node {
         If,
         Loop,
         #[default]
-        Local
+        Local,
     }
 
     #[derive(Debug, Default)]
     pub struct Scope {
         pub kind: ScopeType,
         pub signature: Option<Statement>,
-        pub body: Program
+        pub body: Program,
     }
 }
 
@@ -48,12 +48,18 @@ pub mod node {
 pub enum SymbolType {
     Undefined,
     Int(usize),
-    String(String)
+    String(String),
+}
+
+// each symbol (variable, function)
+struct Symbol {
+    // name: String,
+    kind: SymbolType,
 }
 
 struct Parser<'a> {
     tokens: &'a mut Vec<Lexeme>,
-    symbol_table: HashMap<usize, SymbolType>
+    symbol_table: HashMap<usize, SymbolType>,
 }
 
 impl Parser<'_> {
@@ -88,7 +94,7 @@ impl Parser<'_> {
             Some(Lexeme::Token(Token::Access)) => node::ScopeType::Function,
             Some(Lexeme::Token(Token::Repeat)) => node::ScopeType::Loop,
             // TODO: if statement
-            _ => return None
+            _ => return None,
         };
 
         scope.signature = Some(self.parse_line()?);
@@ -116,7 +122,7 @@ impl Parser<'_> {
             if let Some(line) = &line {
                 match line.expressions.last()? {
                     node::Expression::ScopeEnd => break,
-                    _ => continue
+                    _ => continue,
                 }
             }
         }
@@ -130,7 +136,7 @@ impl Parser<'_> {
         // TODO: do we need to check this?
         if let Some(Lexeme::Identifier(id)) = id {
             self.symbol_table.insert(id, SymbolType::Undefined);
-            return Some(node::Expression::Variable((id, SymbolType::Undefined)))
+            return Some(node::Expression::Variable((id, SymbolType::Undefined)));
         }
 
         None
@@ -149,18 +155,18 @@ impl Parser<'_> {
         // TODO: replace unwraps with proper error handling
         while let Some(lexeme) = self.tokens.pop() {
             statement.expressions.push(match lexeme {
-                Lexeme::Token(Token::Zero)      => IntLit(self.parse_int()?),
+                Lexeme::Token(Token::Zero) => IntLit(self.parse_int()?),
                 Lexeme::Token(Token::Increment) => unreachable!(),
                 Lexeme::Token(Token::Decrement) => unreachable!(),
-                Lexeme::Token(Token::Access)    => self.add_var()?,
-                Lexeme::Token(Token::Variable)  => unreachable!(),
-                Lexeme::Identifier(id)          => Variable((id, self.replace_var(id)?.clone())), // TODO: maybe part of parse_int()
-                Lexeme::Token(Token::Repeat)    => unreachable!(),
-                Lexeme::Token(Token::Quote)     => self.parse_quote()?,
-                Lexeme::Token(Token::ScopeStart)=> Scope(self.parse_scope()?),
-                Lexeme::Token(Token::ScopeEnd)  => return Some(statement),
+                Lexeme::Token(Token::Access) => self.add_var()?,
+                Lexeme::Token(Token::Variable) => unreachable!(),
+                Lexeme::Identifier(id) => Variable((id, self.replace_var(id)?.clone())), // TODO: maybe part of parse_int()
+                Lexeme::Token(Token::Repeat) => unreachable!(),
+                Lexeme::Token(Token::Quote) => self.parse_quote()?,
+                Lexeme::Token(Token::ScopeStart) => Scope(self.parse_scope()?),
+                Lexeme::Token(Token::ScopeEnd) => return Some(statement),
 
-                Lexeme::Token(Token::LineBreak) => return Some(statement)
+                Lexeme::Token(Token::LineBreak) => return Some(statement),
             });
         }
 
@@ -172,13 +178,18 @@ pub fn parse(tokens: &mut Vec<Lexeme>) -> Result<node::Program, String> {
     tokens.reverse(); // TODO: is reversing first faster than pop_back()?
     let mut parser = Parser {
         tokens,
-        symbol_table: HashMap::new()
+        symbol_table: HashMap::new(),
     };
     let mut program: node::Program = Default::default();
 
     let mut line_numb = 1;
     let mut line = parser.parse_line();
-    while !line.as_ref().ok_or(format!("invalid syntax at line {}", line_numb))?.expressions.is_empty() {
+    while !line
+        .as_ref()
+        .ok_or(format!("invalid syntax at line {}", line_numb))?
+        .expressions
+        .is_empty()
+    {
         program.statements.push(line.unwrap());
 
         line = parser.parse_line();

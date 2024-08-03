@@ -1,6 +1,6 @@
 use std::env;
-use std::process::{exit, Command};
 use std::path::Path;
+use std::process::{exit, Command};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -14,26 +14,22 @@ fn main() {
     println!("{:?} ({})", tokens, tokens.len());
 
     // parser
-    let program = match parser::parse(&mut tokens.into()) {
-        Ok(body) => body,
-        Err(err) => {
-            println!("{err}");
-            exit(1);
-        }
-    };
+    let program = parser::parse(&mut tokens.into())?;
     println!("Finished parsing:");
     println!("\t{program:?}");
 
     // codegen
-    let out_name = format!("out/{}", Path::new(&args[3]).file_stem().unwrap().to_str().unwrap());
-    codegen::generate(&program, &format!("{}.s", out_name))
-        .expect("failed to asm write to file");
+    let out_name = format!(
+        "out/{}",
+        Path::new(&args[3]).file_stem().unwrap().to_str().unwrap()
+    );
+    codegen::generate(&program, &format!("{}.s", out_name)).expect("failed to asm write to file");
 
-    Command::new("nasm")    // assemble
+    Command::new("nasm") // assemble
         .args(["-felf64", &format!("{}.s", out_name)])
         .output()
         .expect("nasm failed");
-    Command::new("ld")      // link
+    Command::new("ld") // link
         .arg(format!("{}.o", out_name))
         .args(["-o", &args[3]])
         .output()
