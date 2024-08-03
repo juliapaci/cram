@@ -164,7 +164,7 @@ struct Scope {
 }
 
 // data for the tokens
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct KeyData {
     token: Token,    // token that the key represents
     colour: Rgb<u8>, // colour of key
@@ -193,8 +193,8 @@ impl std::fmt::Display for KeyData {
     }
 }
 
-impl KeyData {
-    fn new() -> Self {
+impl Default for KeyData {
+    fn default() -> Self {
         Self {
             token: Default::default(),
             colour: Rgb([0, 0, 0]),
@@ -238,14 +238,14 @@ struct Key {
 impl Key {
     fn new() -> Self {
         Self {
-            zero: KeyData::new(),
-            increment: KeyData::new(),
-            decrement: KeyData::new(),
-            access: KeyData::new(),
-            repeat: KeyData::new(),
+            zero: KeyData::default(),
+            increment: KeyData::default(),
+            decrement: KeyData::default(),
+            access: KeyData::default(),
+            repeat: KeyData::default(),
 
-            quote: KeyData::new(),
-            line_break: KeyData::new(),
+            quote: KeyData::default(),
+            line_break: KeyData::default(),
             variables: Vec::new(),
 
             background: Rgb([0, 0, 0]),
@@ -316,7 +316,7 @@ impl Key {
         })
     }
 
-    // TODO: dont hardcode the size & maybe use a macro or something or use serde
+    // TODO: dont hardcode the size & use serialisation
     // converts the members of Key to an array, excluding some members
     fn data(&self) -> Vec<&KeyData> {
         let mut keys = vec![
@@ -472,22 +472,23 @@ impl Key {
             };
 
             // trim around the key (the background outside)
-            let mut left: Vec<Rgb<u8>> = row[..first]
+            let left: Vec<Rgb<u8>> = row[..first]
                 .iter()
                 .filter(|&p| *p != self.background && *p != self.grid)
                 .copied()
                 .collect();
-            let mut right: Vec<Rgb<u8>> = row[last..]
+            let right: Vec<Rgb<u8>> = row[last..]
                 .iter()
                 .filter(|&p| *p != self.background && *p != self.grid)
                 .copied()
                 .collect();
-            let mut middle = row[first..last].to_vec();
+            let middle = row[first..last].to_vec();
 
-            left.append(&mut middle);
-            left.append(&mut right);
+            let mut tok = Vec::with_capacity(left.len() + middle.len() + right.len());
+            tok.extend(middle);
+            tok.extend(right);
 
-            key.push(left);
+            key.push(tok);
         }
 
         // top left pixel's coords
@@ -570,10 +571,11 @@ impl Key {
             self.grid = tiles[0][0][0];
         }
 
+        let keys: Vec<KeyData> = self.data().iter().enumerate().map(|(i, _)| self.outline_key(&tiles[i], unsafe { std::mem::transmute(i as u8) })).collect();
         // assign key fields to real data
-        self.data_mut().iter().enumerate().for_each(|(i, &key)| {
+        self.data_mut().iter_mut().enumerate().for_each(|(i, &mut ref mut key)| {
             // unsafe is fine since we are hardcoding the possible values of teken
-            *key = self.outline_key(&tiles[i], unsafe { std::mem::transmute(i as u8) });
+            **key = keys[i];
         });
     }
 }

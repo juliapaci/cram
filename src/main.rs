@@ -14,7 +14,7 @@ fn main() {
     println!("{:?} ({})", tokens, tokens.len());
 
     // parser
-    let program = parser::parse(&mut tokens.into())?;
+    let program = parser::parse(&mut tokens.into()).unwrap();
     println!("Finished parsing:");
     println!("\t{program:?}");
 
