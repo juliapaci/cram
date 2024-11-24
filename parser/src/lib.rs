@@ -22,7 +22,7 @@ pub mod node {
         ScopeEnd, // TODO: better way to find scopeEnd this is not good
         IntLit(isize),
         StringLit(String),
-        Variable((usize, SymbolType)), // id, type
+        Variable((usize, SymbolType)), // (id, type)
                                        // TODO: variables should also take into account scope therefore i do not think that we should store variable data like this.
     }
 
@@ -68,6 +68,11 @@ impl Parser<'_> {
         let mut value = Default::default();
 
         while let Some(lexeme) = self.tokens.pop() {
+            if lexeme == Lexeme::Token(Token::LineBreak) {
+                self.tokens.push(Lexeme::Token(Token::LineBreak));
+                break;
+            }
+
             let increment = lexeme == Lexeme::Token(Token::Increment);
             let decrement = lexeme == Lexeme::Token(Token::Decrement);
 
@@ -119,11 +124,12 @@ impl Parser<'_> {
             program.statements.push(line.unwrap());
 
             line = self.parse_line();
-            if let Some(line) = &line {
-                match line.expressions.last()? {
-                    node::Expression::ScopeEnd => break,
-                    _ => continue,
-                }
+            match self.tokens.last()? {
+                Lexeme::Token(Token::ScopeEnd) => {
+                    self.tokens.pop();
+                    break
+                },
+                _ => continue,
             }
         }
 
@@ -154,6 +160,7 @@ impl Parser<'_> {
         // TODO: should node::Expressions be put here or should the parsing functions return them?
         // TODO: replace unwraps with proper error handling
         while let Some(lexeme) = self.tokens.pop() {
+            println!("doing {lexeme:?}");
             statement.expressions.push(match lexeme {
                 Lexeme::Token(Token::Zero) => IntLit(self.parse_int()?),
                 Lexeme::Token(Token::Increment) => unreachable!(),
@@ -182,20 +189,18 @@ pub fn parse(tokens: &mut Vec<Lexeme>) -> Result<node::Program, String> {
     };
     let mut program: node::Program = Default::default();
 
-    let mut line_numb = 1;
-    let mut line = parser.parse_line();
+    let (mut line, mut count) = (parser.parse_line(), 2);
     while !line
         .as_ref()
-        .ok_or(format!("invalid syntax at line {}", line_numb))?
+        .ok_or(format!("invalid syntax at line {}", count))?
         .expressions
         .is_empty()
     {
         program.statements.push(line.unwrap());
 
         line = parser.parse_line();
-        line_numb += 1;
+        count += 1
     }
 
-    println!("\n{program:?}");
     Ok(program)
 }

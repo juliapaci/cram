@@ -8,6 +8,10 @@ use std::path::Path;
 
 use sha256::try_digest;
 
+const TILE_SIZE: usize = 64;
+
+// TODO: could use serde instead of custom log serialization but idk
+
 // TODO: ggpu or multithreading for faster lexing
 // TODO: incremental compilation
 // TODO: linter
@@ -16,8 +20,7 @@ use sha256::try_digest;
 macro_rules! bounds_check {
     ($position: expr, $bound: expr, $in: block, $out: block) => {
         if !bounds_check!($position, $bound) $out
-
-        $in
+        else $in
     };
 
     ($position: expr, $bound: expr, $out: block) => {
@@ -164,6 +167,7 @@ struct Scope {
 }
 
 // data for the tokens
+// TODO: multi coloured? just use a map
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct KeyData {
     token: Token,    // token that the key represents
@@ -214,8 +218,7 @@ macro_rules! take {
     };
 }
 
-// TODO: find way to implement display for RGB type
-
+// TODO: implement background stack for scopes so we dont have to pass colour parameters
 // data from key file parsing (except variables)
 struct Key {
     // for turing completeness
@@ -257,6 +260,7 @@ impl Key {
     // - key file checksum
     // - see KeyData Display trait
     // seperated by a newline
+
     // TODO: in future maybe keep track of position of all the keys in source and key file so we can use compression for vc and stuff
     // TODO: keep logs of parts of source file so we dont have to recompile everything all the time
 
@@ -272,10 +276,10 @@ impl Key {
             .iter()
             .for_each(|&k| writeln!(log, "{}", k).unwrap());
 
-        let bgc = self.background.channels();
-        let ggc = self.grid.channels();
-        writeln!(log, "{}\n{}\n{}", bgc[0], bgc[1], bgc[2])?;
-        writeln!(log, "{}\n{}\n{}", ggc[0], ggc[1], ggc[2])?;
+        let bc = self.background.channels();
+        let gc = self.grid.channels();
+        writeln!(log, "{}\n{}\n{}", bc[0], bc[1], bc[2])?;
+        writeln!(log, "{}\n{}\n{}", gc[0], gc[1], gc[2])?;
 
         Ok(())
     }
@@ -372,10 +376,9 @@ impl Key {
             .map(|&k| (k.width_left + k.width_right, k.height_up + k.height_down))
             .collect();
 
-        // unwrap is fine since we hardcore the array
-
-        // width
+        // unwrap is fine since we hardcode the array
         (
+            // width
             sizes.iter().map(|s| s.0).max().unwrap(),
             // height
             sizes.iter().map(|s| s.1).max().unwrap(),
@@ -406,8 +409,8 @@ impl Key {
         tile: &Tile,
         background: Rgb<u8>,
         image: &image::DynamicImage,
-    ) -> [[Rgb<u8>; 64]; 64] {
-        let mut pixels: [[Rgb<u8>; 64]; 64] = [[background; 64]; 64];
+    ) -> [[Rgb<u8>; TILE_SIZE]; TILE_SIZE] {
+        let mut pixels: [[Rgb<u8>; TILE_SIZE]; TILE_SIZE] = [[background; TILE_SIZE]; TILE_SIZE];
 
         for y in 0..tile.height as usize {
             for x in 0..tile.width as usize {
@@ -426,15 +429,19 @@ impl Key {
 
     // TODO: make it more flexible so the key file isnt restricted to a certain resolution
     // splits an image into 4x4 64x64 chunks
-    fn image_to_tiles(&mut self, image: &image::DynamicImage) -> [[[Rgb<u8>; 64]; 64]; 16] {
+    fn image_to_tiles(
+        &mut self,
+        image: &image::DynamicImage,
+    ) -> [[[Rgb<u8>; TILE_SIZE]; TILE_SIZE]; 16] {
         let pixels: Vec<Rgb<u8>> = image.to_rgb8().pixels().copied().collect();
 
-        let mut tiles: [[[Rgb<u8>; 64]; 64]; 16] = [[[Rgb([0, 0, 0]); 64]; 64]; 16];
+        let mut tiles: [[[Rgb<u8>; TILE_SIZE]; TILE_SIZE]; 16] =
+            [[[Rgb([0, 0, 0]); TILE_SIZE]; TILE_SIZE]; 16];
         for tile in 0..16 {
-            let tile_offset = (tile / 4) * 64 * 256 + (tile % 4) * 64;
-            for y in 0..64 {
+            let tile_offset = (tile / 4) * TILE_SIZE * 256 + (tile % 4) * TILE_SIZE;
+            for y in 0..TILE_SIZE {
                 let y_offset = y * image.width() as usize;
-                for x in 0..64 {
+                for x in 0..TILE_SIZE {
                     tiles[tile][y][x] = pixels[tile_offset + y_offset + x];
                 }
             }
@@ -446,7 +453,7 @@ impl Key {
     // reads the key but doesnt remove parts within it. Useful for reading hollow keys
     // will panic if there is nothing (ignored pixels) occupying the tile (e.g. exclusively background and/or grid pixels)
     // TODO: add background param to this so it works in scopes
-    fn outline_key(&self, tile: &[[Rgb<u8>; 64]; 64], token: Token) -> KeyData {
+    fn outline_key(&self, tile: &[[Rgb<u8>; TILE_SIZE]; TILE_SIZE], token: Token) -> KeyData {
         // the trimmed key
         let mut key: Vec<Vec<Rgb<u8>>> = Vec::new();
 
@@ -499,16 +506,16 @@ impl Key {
             .filter(|row| row.iter().any(|&p| p != self.background && p != self.grid))
             .flat_map(|row| row.iter())
             .position(|&p| p != self.background && p != self.grid)
-            .unwrap();
+            .unwrap_or(0);
 
         first_pixel.1 = *tile // y
             .iter()
             .enumerate()
             .map(|(y, row)| {
-                if row[first_pixel.0] != self.background && row[first_pixel.0] != self.grid {
-                    y
-                } else {
+                if row[first_pixel.0] == self.background || row[first_pixel.0] == self.grid {
                     0
+                } else {
+                    y
                 }
             })
             .collect::<Vec<usize>>()
@@ -526,7 +533,7 @@ impl Key {
                 (
                     row.iter()
                         .position(|&p| p != self.background && p != self.grid)
-                        .unwrap_or(64), // TODO: dont hardcode this
+                        .unwrap_or(TILE_SIZE),
                     y,
                 )
             })
@@ -544,10 +551,10 @@ impl Key {
             .collect();
 
         // each row is garunteed to exist with data so we can safely unwrap()
-        let width = key.iter().map(Vec::len).max().unwrap() as i16;
+        let width = key.iter().map(Vec::len).max().unwrap_or(0) as i16;
         KeyData {
             token,
-            colour: key[0][0],
+            colour: key.get(0).unwrap_or(&vec![image::Rgb([0, 0, 0])])[0],
 
             // fields values are from leftmost
             width_left: (first_pixel.0 as i16 - leftmost_pixel.0 as i16).abs() as u8,
@@ -571,12 +578,20 @@ impl Key {
             self.grid = tiles[0][0][0];
         }
 
-        let keys: Vec<KeyData> = self.data().iter().enumerate().map(|(i, _)| self.outline_key(&tiles[i], unsafe { std::mem::transmute(i as u8) })).collect();
+        let keys: Vec<KeyData> = self
+            .data()
+            .iter()
+            .enumerate()
+            .map(|(i, _)| self.outline_key(&tiles[i], unsafe { std::mem::transmute(i as u8) }))
+            .collect();
         // assign key fields to real data
-        self.data_mut().iter_mut().enumerate().for_each(|(i, &mut ref mut key)| {
-            // unsafe is fine since we are hardcoding the possible values of teken
-            **key = keys[i];
-        });
+        self.data_mut()
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, &mut ref mut key)| {
+                // unsafe is fine since we are hardcoding the possible values of teken
+                **key = keys[i];
+            });
     }
 }
 
@@ -600,13 +615,7 @@ impl Lexer {
     // returns the first keys token from a 1d index onwards
     // TODO: wont get the first, will get the heighest
     // TODO: optimise this with ignore map
-    // TODO: rename since this isnt consuming anything
-    fn consume_first(
-        &self,
-        bounds: &Tile,
-        background: Rgb<u8>,
-        image: &image::DynamicImage,
-    ) -> Token {
+    fn get_first(&self, bounds: &Tile, background: Rgb<u8>, image: &image::DynamicImage) -> Token {
         // TODO: use a macro or heigher order function for this loop since we use it alot
         for x in bounds.x..(bounds.x + bounds.width as usize).min(image.width() as usize) {
             for y in bounds.y..(bounds.y + bounds.height as usize).min(image.height() as usize) {
@@ -617,7 +626,7 @@ impl Lexer {
 
                 for key in self.key.data_from_colour(pixel) {
                     let tile = Tile {
-                        x: (x - key.width_left as usize).max(0),
+                        x: (x as isize - key.width_left as isize).max(0) as usize,
                         y,
                         width: (key.width_left + key.width_right) as u32,
                         height: (key.height_up + key.height_down) as u32,
@@ -640,7 +649,7 @@ impl Lexer {
     fn line_height(&self, bounds: &Tile, background: Rgb<u8>, image: &image::DynamicImage) -> u8 {
         let first = self
             .key
-            .data_from_token(self.consume_first(bounds, background, image));
+            .data_from_token(self.get_first(bounds, background, image));
         let mut ignore: HashMap<Rgb<u8>, _> = HashMap::new();
         let mut max_height: u8 = first.height_up + first.height_down;
         let linebreak_colour = self.key.data_from_token(Token::LineBreak).colour;
@@ -818,7 +827,7 @@ impl Lexer {
                             &Tile {
                                 x,
                                 y: size.y - 1,
-                                width: 64,
+                                width: TILE_SIZE as _,
                                 height: size.height,
                             },
                             background,
@@ -832,7 +841,7 @@ impl Lexer {
                 if self.key.data_from_colour(pixels[y][x]).is_empty() {
                     let scope = Tile::detect_rectangle((x, y), image);
                     // rectangle is big enough to be a scope
-                    if scope.width > 64 && scope.height > 64 {
+                    if scope.width > TILE_SIZE as _ && scope.height > TILE_SIZE as _ {
                         self.analyse_scope(
                             &Scope {
                                 colour: pixels[y][x],
@@ -881,8 +890,10 @@ impl Lexer {
 
         // inserting a line break if there wasnt one there
         // TODO: ignore consecutive LineBreaks better
-        if let Some(&ref lexeme) = self.tokens.last() {
-            if *lexeme != Lexeme::Token(Token::LineBreak) {
+        if let Some(lexeme) = self.tokens.last() {
+            if *lexeme != Lexeme::Token(Token::LineBreak)
+                && *lexeme != Lexeme::Token(Token::ScopeEnd)
+            {
                 self.tokens.push(Lexeme::Token(Token::LineBreak));
             }
         }
@@ -1213,7 +1224,7 @@ mod tests {
         let tile = Tile::from_1d(21, setup.img.width(), setup.img.height(), &setup.img);
         let test = setup
             .lexer
-            .consume_first(&tile, setup.lexer.key.background, &setup.img);
+            .get_first(&tile, setup.lexer.key.background, &setup.img);
         let expected = Token::Quote;
 
         assert_eq!(test, expected);

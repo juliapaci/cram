@@ -1,10 +1,10 @@
 use std::env;
 use std::path::Path;
-use std::process::{exit, Command};
+use std::process::Command;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 4 {
+    if args.len() < 4 {
         println!("Input the key file, source file, and output file paths as respective arguments");
         return;
     }
@@ -14,9 +14,15 @@ fn main() {
     println!("{:?} ({})", tokens, tokens.len());
 
     // parser
-    let program = parser::parse(&mut tokens.into()).unwrap();
+    let program = match parser::parse(&mut tokens.into()) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("{e}");
+            return;
+        }
+    };
     println!("Finished parsing:");
-    println!("\t{program:?}");
+    println!("{program:?}");
 
     // codegen
     let out_name = format!(
