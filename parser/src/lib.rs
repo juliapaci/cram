@@ -1,4 +1,3 @@
-// recursive descent parser
 use lexer::*;
 
 use std::collections::HashMap;
@@ -127,8 +126,8 @@ impl Parser<'_> {
             match self.tokens.last()? {
                 Lexeme::Token(Token::ScopeEnd) => {
                     self.tokens.pop();
-                    break
-                },
+                    break;
+                }
                 _ => continue,
             }
         }
@@ -160,7 +159,7 @@ impl Parser<'_> {
         // TODO: should node::Expressions be put here or should the parsing functions return them?
         // TODO: replace unwraps with proper error handling
         while let Some(lexeme) = self.tokens.pop() {
-            println!("doing {lexeme:?}");
+            println!("{lexeme:?}");
             statement.expressions.push(match lexeme {
                 Lexeme::Token(Token::Zero) => IntLit(self.parse_int()?),
                 Lexeme::Token(Token::Increment) => unreachable!(),
